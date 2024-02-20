@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ext/glm" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ext/uevr" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ext/uevr/dependencies/submodules/UESDK" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ext/uevr/dependencies/submodules/glm" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ext/uevr/dependencies/submodules/imgui" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ext/uevr/dependencies/submodules/spdlog" vcs="Git" />
+  </component>
+</project>
