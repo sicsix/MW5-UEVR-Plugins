@@ -215,7 +215,6 @@ private:
         current_rotation = {clamp(current_rotation.x, torso_stats->arm.bounds_low.x, torso_stats->arm.bounds_high.x),
             clamp(current_rotation.y, torso_stats->arm.bounds_low.y, torso_stats->arm.bounds_high.y)};
 
-        log_info("triggered");
         *arm_twist = current_rotation + *torso_rotation;
     }
 
