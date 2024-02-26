@@ -14,40 +14,20 @@ class HeadAim final : public PluginExtension {
     bool* enable_arm_lock = nullptr;
     float* zoom_level = nullptr;
     float* head_aim_pitch_offset = nullptr;
+    float* head_aim_yaw_offset = nullptr;
     vec3* head_crosshair_rotator = nullptr; // Pitch, yaw, roll
     vec2* torso_rotation = nullptr;
     vec2* arm_twist_bounds_high = nullptr;
     vec2* arm_twist_bounds_low = nullptr;
     vec2* arm_twist_rate = nullptr;
-    bool* disable_hmd_aim_correction = nullptr;
     API::UObject* vr_headcrosshairrotator = nullptr;
     vec3* mech_relative_rotation = nullptr;
-
-    API::UFunction* set_world_rotation_fn = nullptr;
-    struct SetWorldRotationParams {
-        vec3 new_rotation;
-        bool sweep;
-        bool teleport;
-        bool out1;
-        bool out2;
-        float out3;
-        float out4;
-        vec3 out5;
-        vec3 out6;
-        vec3 out7;
-        vec3 out8;
-        void* out9;
-        void* out10;
-        void* out11;
-        void* out12;
-        int out13;
-        int out14;
-        vec3 out15;
-        vec3 out16;
-    };
+    vec2* head_aim_target = nullptr;
+    bool* head_aim_locked = nullptr;
 
     bool in_mech = false;
     float delta = 0;
+    vec2 rotation_speed = vec2(0, 0);
 
 #define ARM_SPRING_CONSTANT 175.0f
 #define ARM_DAMPING_CONSTANT 25.0f
@@ -128,16 +108,13 @@ private:
                              try_get_property_struct(torso_twist_c, L"TorsoTwist", torso_rotation) &&
                              try_get_property(pawn, L"RootComponent", mech_root_c) &&
                              try_get_property_struct(mech_root_c, L"RelativeRotation", mech_relative_rotation) &&
-                             try_get_property_struct(mech_cockpit, L"HeadAimPitchOffset", head_aim_pitch_offset);
+                             try_get_property_struct(mech_cockpit, L"HeadAimPitchOffset", head_aim_pitch_offset) &&
+                             try_get_property_struct(mech_cockpit, L"HeadAimYawOffset", head_aim_yaw_offset) &&
+                             try_get_property_struct(mech_cockpit, L"HeadAimTarget", head_aim_target) &&
+                             try_get_property_struct(mech_cockpit, L"HeadAimLocked", head_aim_locked);
 
         if (!success) {
             log_info("Failed to get Mech references - probably not in a Mech");
-            return false;
-        }
-
-        set_world_rotation_fn = vr_headcrosshairrotator->get_class()->find_function(L"K2_SetWorldRotation");
-        if (!set_world_rotation_fn) {
-            log_error("Failed to find K2_SetWorldRotation function");
             return false;
         }
 
@@ -170,6 +147,7 @@ private:
         const quat combined_rot = normalize(quat_rot_offset * quat_rot);
         vec3 euler = degrees(euler_angles_from_quat(combined_rot));
         euler.x += *head_aim_pitch_offset;
+        euler.y += *head_aim_yaw_offset;
 
         // API::get()->log_info("HMD Rotation: Pitch %f, Yaw %f, Roll %f", euler.x, euler.y, euler.z);
         return euler;
@@ -189,6 +167,8 @@ private:
         }
     }
 
+    float recenter_hack_offset = 0.000001f;
+
     void arms_only() {
         const vec3 hmd_rotation = get_hmd_rotation();
 
@@ -196,11 +176,13 @@ private:
         if (*armlock_enabled == *enable_arm_lock) {
             target_rotation = {clamp(hmd_rotation.y, torso_stats->arm.bounds_low.x, torso_stats->arm.bounds_high.x),
                 clamp(hmd_rotation.x, torso_stats->arm.bounds_low.y, torso_stats->arm.bounds_high.y)};
+            update_head_aim_target(target_rotation);
+            *head_aim_locked = false;
         } else {
             target_rotation = vec2(0, 0);
+            smoothed_head_rotation = vec2(0, 0);
+            *head_aim_locked = true;
         }
-
-        update_head_aim_position(target_rotation);
 
         target_rotation /= *zoom_level;
 
@@ -216,23 +198,22 @@ private:
             clamp(current_rotation.y, torso_stats->arm.bounds_low.y, torso_stats->arm.bounds_high.y)};
 
         *arm_twist = current_rotation + *torso_rotation;
+
+        // Imperceptable alternating jitter added to torso rotation to stop game's C++ from locking the arm target to center once stable
+        torso_rotation->x = torso_rotation->x + recenter_hack_offset;
+        recenter_hack_offset *= -1.0f;
     }
 
-    void update_head_aim_position(const vec2& target_head_rotation) {
-        constexpr float max_distance = 16.0f;
-        constexpr float min_interp = 0.06f;
-        constexpr float max_interp = 0.5f;
+    void update_head_aim_target(const vec2& target_head_rotation) {
+        constexpr float max_distance = 2.0f;
+        constexpr float min_interp = 0.01f;
+        constexpr float max_interp = 1.0f;
 
         const float distance = length(target_head_rotation - smoothed_head_rotation);
         const float smoothing_factor = min_interp + min((distance / max_distance), 1.0f) * (max_interp - min_interp);
 
         smoothed_head_rotation = lerp(smoothed_head_rotation, target_head_rotation, smoothing_factor);
-
-        auto final_rotation = smoothed_head_rotation + *torso_rotation;
-        final_rotation.x += mech_relative_rotation->y;
-
-        SetWorldRotationParams set_world_rotation_params = {{final_rotation.y, final_rotation.x, 0}};
-        set_world_rotation_fn->call(vr_headcrosshairrotator, &set_world_rotation_params);
+        *head_aim_target = smoothed_head_rotation;
     }
 
     void torso_and_arms() const {
