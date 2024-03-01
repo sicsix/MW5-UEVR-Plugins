@@ -89,32 +89,39 @@ private:
 
         const auto player_controller = API::get()->get_player_controller(0);
 
-        const bool success = try_get_property(pawn, L"MechViewComponent", mech_view_c) &&
-                             try_get_property(pawn, L"MechMeshComponent", mech_mesh_c) &&
-                             try_get_property(mech_mesh_c, L"FirstPersonCockpitComponent", cockpit_c) &&
-                             try_get_property(cockpit_c, L"ChildActor", mech_cockpit) &&
-                             try_get_property_struct(mech_cockpit, L"HeadAimMode", head_aim_mode) &&
-                             try_get_property(pawn, L"TorsoTwistComponent", torso_twist_c) &&
-                             try_get_property_struct(torso_twist_c, L"bArmlockEnabled", armlock_enabled) &&
-                             try_get_property_struct(torso_twist_c, L"ArmTwist", arm_twist) &&
-                             try_get_property_struct(mech_view_c, L"TargetRelativeViewRotator", view_rotator) &&
-                             try_get_property_struct(torso_twist_c, L"TorsoStats", torso_stats) &&
-                             try_get_property(player_controller, L"MWGameUserSettings", user_settings) &&
-                             try_get_property_struct(user_settings, L"EnableArmLock", enable_arm_lock) &&
-                             try_get_property(mech_cockpit, L"VR_HUDManager", vr_hudmanager) &&
-                             try_get_property_struct(vr_hudmanager, L"ZoomLevel", zoom_level) &&
-                             try_get_property(mech_cockpit, L"VR_HeadCrosshairRotator", vr_headcrosshairrotator) &&
-                             try_get_property_struct(vr_headcrosshairrotator, L"RelativeRotation", head_crosshair_rotator) &&
-                             try_get_property_struct(torso_twist_c, L"TorsoTwist", torso_rotation) &&
-                             try_get_property(pawn, L"RootComponent", mech_root_c) &&
-                             try_get_property_struct(mech_root_c, L"RelativeRotation", mech_relative_rotation) &&
-                             try_get_property_struct(mech_cockpit, L"HeadAimPitchOffset", head_aim_pitch_offset) &&
-                             try_get_property_struct(mech_cockpit, L"HeadAimYawOffset", head_aim_yaw_offset) &&
-                             try_get_property_struct(mech_cockpit, L"HeadAimTarget", head_aim_target) &&
-                             try_get_property_struct(mech_cockpit, L"HeadAimLocked", head_aim_locked);
+        bool success =
+            try_get_property(pawn, L"MechViewComponent", mech_view_c) && try_get_property(pawn, L"MechMeshComponent", mech_mesh_c);
 
         if (!success) {
             log_info("Failed to get Mech references - probably not in a Mech");
+            return false;
+        }
+
+        success = try_get_property(mech_mesh_c, L"FirstPersonCockpitComponent", cockpit_c) &&
+                  try_get_property(cockpit_c, L"ChildActor", mech_cockpit) &&
+                  try_get_property_struct(mech_cockpit, L"HeadAimMode", head_aim_mode) &&
+                  try_get_property(pawn, L"TorsoTwistComponent", torso_twist_c) &&
+                  try_get_property_struct(torso_twist_c, L"bArmlockEnabled", armlock_enabled) &&
+                  try_get_property_struct(torso_twist_c, L"ArmTwist", arm_twist) &&
+                  try_get_property_struct(mech_view_c, L"TargetRelativeViewRotator", view_rotator) &&
+                  try_get_property_struct(torso_twist_c, L"TorsoStats", torso_stats) &&
+                  try_get_property(player_controller, L"MWGameUserSettings", user_settings) &&
+                  try_get_property_struct(user_settings, L"EnableArmLock", enable_arm_lock) &&
+                  try_get_property(mech_cockpit, L"VR_HUDManager", vr_hudmanager) &&
+                  try_get_property_struct(vr_hudmanager, L"ZoomLevel", zoom_level) &&
+                  try_get_property(mech_cockpit, L"VR_HeadCrosshairRotator", vr_headcrosshairrotator) &&
+                  try_get_property_struct(vr_headcrosshairrotator, L"RelativeRotation", head_crosshair_rotator) &&
+                  try_get_property_struct(torso_twist_c, L"TorsoTwist", torso_rotation) &&
+                  try_get_property(pawn, L"RootComponent", mech_root_c) &&
+                  try_get_property_struct(mech_root_c, L"RelativeRotation", mech_relative_rotation) &&
+                  try_get_property_struct(mech_cockpit, L"HeadAimPitchOffset", head_aim_pitch_offset) &&
+                  try_get_property_struct(mech_cockpit, L"HeadAimYawOffset", head_aim_yaw_offset) &&
+                  try_get_property_struct(mech_cockpit, L"HeadAimTarget", head_aim_target) &&
+                  try_get_property_struct(mech_cockpit, L"HeadAimLocked", head_aim_locked);
+
+        if (!success) {
+            log_info("Failed to get cockpit references, retrying next frame...");
+            pawn = nullptr;
             return false;
         }
 
