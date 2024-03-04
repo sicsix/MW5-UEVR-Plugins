@@ -9,7 +9,8 @@ class HeadAim final : public PluginExtension {
     API::UObject* pawn = nullptr;
     HeadAimMode* head_aim_mode = nullptr;
     vec2* arm_twist = nullptr;
-    vec3* view_rotator = nullptr; // Pitch, yaw, roll
+    vec3* target_view_rotator = nullptr; // Pitch, yaw, roll
+    vec3* last_view_rotator = nullptr;
     bool* armlock_enabled = nullptr;
     bool* enable_arm_lock = nullptr;
     float* zoom_level = nullptr;
@@ -22,7 +23,8 @@ class HeadAim final : public PluginExtension {
     vec2* arm_twist_rate = nullptr;
     API::UObject* vr_headcrosshairrotator = nullptr;
     vec3* mech_relative_rotation = nullptr;
-    vec2* head_aim_target = nullptr;
+    vec2* head_target = nullptr;
+    vec2* arms_target = nullptr;
     bool* head_aim_locked = nullptr;
 
     bool in_mech = false;
@@ -68,6 +70,11 @@ public:
         }
 
         this->delta = delta;
+
+        if (in_mech) {
+            // LastRelativeViewRotator is used by the targeting logic, setting this here doesn't seem to affect anything else but targeting
+            *last_view_rotator = vec3(head_target->y + torso_rotation->y, head_target->x + torso_rotation->x, 0.0f);
+        }
     }
 
     static void* on_torso_twist(API::UObject*, FFrame*, void* const) {
@@ -103,7 +110,8 @@ private:
                   try_get_property(pawn, L"TorsoTwistComponent", torso_twist_c) &&
                   try_get_property_struct(torso_twist_c, L"bArmlockEnabled", armlock_enabled) &&
                   try_get_property_struct(torso_twist_c, L"ArmTwist", arm_twist) &&
-                  try_get_property_struct(mech_view_c, L"TargetRelativeViewRotator", view_rotator) &&
+                  try_get_property_struct(mech_view_c, L"TargetRelativeViewRotator", target_view_rotator) &&
+                  try_get_property_struct(mech_view_c, L"LastRelativeViewRotator", last_view_rotator) &&
                   try_get_property_struct(torso_twist_c, L"TorsoStats", torso_stats) &&
                   try_get_property(player_controller, L"MWGameUserSettings", user_settings) &&
                   try_get_property_struct(user_settings, L"EnableArmLock", enable_arm_lock) &&
@@ -116,7 +124,8 @@ private:
                   try_get_property_struct(mech_root_c, L"RelativeRotation", mech_relative_rotation) &&
                   try_get_property_struct(mech_cockpit, L"HeadAimPitchOffset", head_aim_pitch_offset) &&
                   try_get_property_struct(mech_cockpit, L"HeadAimYawOffset", head_aim_yaw_offset) &&
-                  try_get_property_struct(mech_cockpit, L"HeadAimTarget", head_aim_target) &&
+                  try_get_property_struct(mech_cockpit, L"HeadTarget", head_target) &&
+                  try_get_property_struct(mech_cockpit, L"ArmsTarget", arms_target) &&
                   try_get_property_struct(mech_cockpit, L"HeadAimLocked", head_aim_locked);
 
         if (!success) {
@@ -156,7 +165,6 @@ private:
         euler.x += *head_aim_pitch_offset;
         euler.y += *head_aim_yaw_offset;
 
-        // API::get()->log_info("HMD Rotation: Pitch %f, Yaw %f, Roll %f", euler.x, euler.y, euler.z);
         return euler;
     }
 
@@ -179,15 +187,15 @@ private:
     void arms_only() {
         const vec3 hmd_rotation = get_hmd_rotation();
 
+        update_head_aim_target({hmd_rotation.y, hmd_rotation.x});
+
         vec2 target_rotation;
         if (*armlock_enabled == *enable_arm_lock) {
-            target_rotation = {clamp(hmd_rotation.y, torso_stats->arm.bounds_low.x, torso_stats->arm.bounds_high.x),
-                clamp(hmd_rotation.x, torso_stats->arm.bounds_low.y, torso_stats->arm.bounds_high.y)};
-            update_head_aim_target(target_rotation);
             *head_aim_locked = false;
+            target_rotation = *arms_target;
         } else {
             target_rotation = vec2(0, 0);
-            smoothed_head_rotation = vec2(0, 0);
+            *arms_target = vec2(0, 0);
             *head_aim_locked = true;
         }
 
@@ -213,21 +221,23 @@ private:
 
     void update_head_aim_target(const vec2& target_head_rotation) {
         constexpr float max_distance = 2.0f;
-        constexpr float min_interp = 0.01f;
+        constexpr float min_interp = 0.05f;
         constexpr float max_interp = 1.0f;
 
         const float distance = length(target_head_rotation - smoothed_head_rotation);
         const float smoothing_factor = min_interp + min((distance / max_distance), 1.0f) * (max_interp - min_interp);
 
         smoothed_head_rotation = lerp(smoothed_head_rotation, target_head_rotation, smoothing_factor);
-        *head_aim_target = smoothed_head_rotation;
+        *head_target = smoothed_head_rotation;
+        *arms_target = {clamp(head_target->x, torso_stats->arm.bounds_low.x, torso_stats->arm.bounds_high.x),
+            clamp(head_target->y, torso_stats->arm.bounds_low.y, torso_stats->arm.bounds_high.y)};
     }
 
     void torso_and_arms() const {
         const auto hmd_rotation = get_hmd_rotation();
-        view_rotator->x = hmd_rotation.x + torso_rotation->y;
-        view_rotator->y = hmd_rotation.y + torso_rotation->x;
-        view_rotator->z = 0;
+        target_view_rotator->x = hmd_rotation.x + torso_rotation->y;
+        target_view_rotator->y = hmd_rotation.y + torso_rotation->x;
+        target_view_rotator->z = 0;
     }
 };
 
