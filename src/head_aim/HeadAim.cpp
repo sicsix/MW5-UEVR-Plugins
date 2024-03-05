@@ -71,7 +71,7 @@ public:
 
         this->delta = delta;
 
-        if (in_mech) {
+        if (in_mech && *head_aim_mode == ARMS_ONLY) {
             // LastRelativeViewRotator is used by the targeting logic, setting this here doesn't seem to affect anything else but targeting
             *last_view_rotator = vec3(head_target->y + torso_rotation->y, head_target->x + torso_rotation->x, 0.0f);
         }
