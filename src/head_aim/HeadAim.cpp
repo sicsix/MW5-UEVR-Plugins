@@ -26,6 +26,11 @@ class HeadAim final : public PluginExtension {
     vec2* head_target = nullptr;
     vec2* arms_target = nullptr;
     bool* head_aim_locked = nullptr;
+    void** current_target = nullptr;
+    void** previous_friendly_target = nullptr;
+    void** previous_hostile_target = nullptr;
+    void** pending_lock_target = nullptr;
+    void** locked_on_target_override = nullptr;
 
     bool in_mech = false;
     float delta = 0;
@@ -82,6 +87,15 @@ public:
         return nullptr;
     }
 
+    static void* on_set_target(API::UObject*, FFrame* frame, void* const) {
+        *instance->current_target = *frame->get_params<void**>();
+        *instance->previous_friendly_target = nullptr;
+        *instance->previous_hostile_target = nullptr;
+        *instance->pending_lock_target = nullptr;
+        *instance->locked_on_target_override = nullptr;
+        return nullptr;
+    }
+
 private:
     bool on_new_pawn(API::UObject* active_pawn) {
         if (pawn) {
@@ -92,7 +106,8 @@ private:
         if (!active_pawn)
             return false;
 
-        API::UObject *mech_view_c, *mech_mesh_c, *cockpit_c, *torso_twist_c, *mech_cockpit, *user_settings, *vr_hudmanager, *mech_root_c;
+        API::UObject *mech_view_c, *mech_mesh_c, *cockpit_c, *torso_twist_c, *mech_cockpit, *user_settings, *vr_hudmanager, *mech_root_c,
+            *target_tracking_c, *lock_on_c;
 
         const auto player_controller = API::get()->get_player_controller(0);
 
@@ -126,7 +141,14 @@ private:
                   try_get_property_struct(mech_cockpit, L"HeadAimYawOffset", head_aim_yaw_offset) &&
                   try_get_property_struct(mech_cockpit, L"HeadTarget", head_target) &&
                   try_get_property_struct(mech_cockpit, L"ArmsTarget", arms_target) &&
-                  try_get_property_struct(mech_cockpit, L"HeadAimLocked", head_aim_locked);
+                  try_get_property_struct(mech_cockpit, L"HeadAimLocked", head_aim_locked) &&
+                  try_get_property(pawn, L"TargetTracking", target_tracking_c) &&
+                  try_get_property_struct(target_tracking_c, L"CurrentTarget", current_target) &&
+                  try_get_property_struct(target_tracking_c, L"PreviousFriendlyTarget", previous_friendly_target) &&
+                  try_get_property_struct(target_tracking_c, L"PreviousHostileTarget", previous_hostile_target) &&
+                  try_get_property(pawn, L"LockOnComponent", lock_on_c) &&
+                  try_get_property_struct(lock_on_c, L"PendingLockTarget", pending_lock_target) &&
+                  try_get_property_struct(lock_on_c, L"LockedOnTargetOverride", locked_on_target_override);
 
         if (!success) {
             log_info("Failed to get cockpit references, retrying next frame...");
@@ -135,6 +157,9 @@ private:
         }
 
         if (!add_event_hook(mech_cockpit->get_class(), L"OnTorsoTwist", &on_torso_twist))
+            return false;
+
+        if (!add_event_hook(mech_cockpit->get_class(), L"OnSetTarget", &on_set_target))
             return false;
 
         log_info("Mech references found and hooks enabled");
