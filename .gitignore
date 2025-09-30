@@ -47,3 +47,4 @@ out/*
 .idea/**/dictionaries
 .idea/**/shelf
 libs/*
+.idea/**

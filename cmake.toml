@@ -28,31 +28,54 @@ endif()
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-#add_subdirectory(dependencies/submodules/UESDK)
+file(GLOB_RECURSE HUD_SHADERS
+  "${CMAKE_SOURCE_DIR}/src/hud/shaders/*.hlsl"
+  "${CMAKE_SOURCE_DIR}/src/hud/shaders/*.hlsli"
+)
+set_source_files_properties(${HUD_SHADERS} PROPERTIES HEADER_FILE_ONLY TRUE)
 """
 
 [template.plugin]
 type = "shared"
 compile-features = ["cxx_std_23"]
-include-directories = ["include/", "ext/uevr/include/", "ext/glm/"]
+include-directories = ["include/", "ext/uevr/include/", "ext/glm/", "ext/openxr/include/", "ext/minhook/include/", "ext/spdlog/include/", "ext/sig/include"]
 
 
 [target.HeadAim]
 type = "plugin"
-sources = ["src/head_aim/**.cpp", "src/head_aim/**.c"]
-headers = ["src/head_aim/**.hpp", "src/head_aim/**.h"]
+sources = ["src/head_aim/**.cpp", "src/head_aim/**.c", "ext/minhook/src/**.c"]
+headers = ["src/head_aim/**.hpp", "src/head_aim/**.h", "ext/minhook/src/**.h", "include/**.h"]
 
 [target.MechShakerBridge]
 type = "plugin"
-sources = ["src/mechshaker_bridge/**.cpp", "src/mechshaker_bridge/**.c"]
-headers = ["src/mechshaker_bridge/**.hpp", "src/mechshaker_bridge/**.h"]
+sources = ["src/mechshaker_bridge/**.cpp", "src/mechshaker_bridge/**.c", "ext/minhook/src/**.c"]
+headers = ["src/mechshaker_bridge/**.hpp", "src/mechshaker_bridge/**.h", "ext/minhook/src/**.h", "include/**.h"]
 
+[target.HUD]
+type = "plugin"
+sources = ["src/hud/**.cpp", "src/hud/**.c", "ext/minhook/src/**.c"]
+headers = ["src/hud/**.hpp", "src/hud/**.h", "ext/minhook/src/**.h", "src/hud/shaders/**.hlsl", "src/hud/shaders/**.hlsli", "include/**.h"]
 
 cmake-after="""
 add_custom_command(
     TARGET HeadAim POST_BUILD
     COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/HeadAim.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/HeadAim.dll")
+
 add_custom_command(
     TARGET MechShakerBridge POST_BUILD
     COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/MechShakerBridge.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/MechShakerBridge.dll")
+
+add_custom_command(
+    TARGET HUD POST_BUILD
+    COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/HUD.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/HUD.dll")
+
+set(_UEVR_PLUGIN_DIR "$ENV{APPDATA}/UnrealVRMod/MechWarrior-Win64-Shipping/plugins")
+
+add_custom_command(
+  TARGET HUD POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${_UEVR_PLUGIN_DIR}/shaders"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          "${CMAKE_SOURCE_DIR}/src/hud/shaders"
+          "${_UEVR_PLUGIN_DIR}/shaders"
+  VERBATIM)
 """

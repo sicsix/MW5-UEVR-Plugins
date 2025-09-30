@@ -1,269 +1,271 @@
-#include <PluginExtension.hpp>
+#include <PluginExtension.h>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/euler_angles.hpp>
 
 class HeadAim final : public PluginExtension {
-    enum HeadAimMode : int { DISABLED, ARMS_ONLY, TORSO_AND_ARMS };
+    enum class HeadAimMode : uint8_t {
+        Disabled, ArmsOnly, TorsoAndArms
+    };
 
-    API::UObject* pawn = nullptr;
-    HeadAimMode* head_aim_mode = nullptr;
-    vec2* arm_twist = nullptr;
-    vec3* target_view_rotator = nullptr; // Pitch, yaw, roll
-    vec3* last_view_rotator = nullptr;
-    bool* armlock_enabled = nullptr;
-    bool* enable_arm_lock = nullptr;
-    float* zoom_level = nullptr;
-    float* head_aim_pitch_offset = nullptr;
-    float* head_aim_yaw_offset = nullptr;
-    vec3* head_crosshair_rotator = nullptr; // Pitch, yaw, roll
-    vec2* torso_rotation = nullptr;
-    vec2* arm_twist_bounds_high = nullptr;
-    vec2* arm_twist_bounds_low = nullptr;
-    vec2* arm_twist_rate = nullptr;
-    API::UObject* vr_headcrosshairrotator = nullptr;
-    vec3* mech_relative_rotation = nullptr;
-    vec2* head_target = nullptr;
-    vec2* arms_target = nullptr;
-    bool* head_aim_locked = nullptr;
-    void** current_target = nullptr;
-    void** previous_friendly_target = nullptr;
-    void** previous_hostile_target = nullptr;
-    void** pending_lock_target = nullptr;
-    void** locked_on_target_override = nullptr;
+    API::UObject* Pawn                   = nullptr;
+    HeadAimMode*  HeadAimMode            = nullptr;
+    vec2*         ArmTwist               = nullptr;
+    vec3*         TargetViewRotator      = nullptr; // Pitch, yaw, roll
+    vec3*         LastViewRotator        = nullptr;
+    bool*         ArmlockEnabled         = nullptr;
+    bool*         EnableArmLock          = nullptr;
+    float*        ZoomLevel              = nullptr;
+    float*        HeadAimPitchOffset     = nullptr;
+    float*        HeadAimYawOffset       = nullptr;
+    vec3*         HeadCrosshairRotator   = nullptr; // Pitch, yaw, roll
+    vec2*         TorsoRotation          = nullptr;
+    vec2*         ArmTwistBoundsHigh     = nullptr;
+    vec2*         ArmTwistBoundsLow      = nullptr;
+    vec2*         ArmTwistRate           = nullptr;
+    API::UObject* VRHeadCrosshairRotator = nullptr;
+    vec3*         MechRelativeRotation   = nullptr;
+    vec2*         HeadTarget             = nullptr;
+    vec2*         ArmsTarget             = nullptr;
+    bool*         HeadAimLocked          = nullptr;
+    void**        CurrentTarget          = nullptr;
+    void**        PreviousFriendlyTarget = nullptr;
+    void**        PreviousHostileTarget  = nullptr;
+    void**        PendingLockTarget      = nullptr;
+    void**        LockedOnTargetOverride = nullptr;
 
-    bool in_mech = false;
-    float delta = 0;
-    vec2 rotation_speed = vec2(0, 0);
+    bool  InMech        = false;
+    float Delta         = 0;
+    vec2  RotationSpeed = vec2(0, 0);
 
 #define ARM_SPRING_CONSTANT 175.0f
 #define ARM_DAMPING_CONSTANT 25.0f
 
-    vec2 current_velocity = vec2();
-    vec2 current_rotation = vec2();
-    vec2 smoothed_head_rotation = vec2();
+    vec2 CurrentVelocity{};
+    vec2 CurrentRotation{};
+    vec2 SmoothedHeadRotation{};
 
     struct TwistBounds {
         // Yaw, Pitch
-        vec2 twist_rate;
-        bool is_yaw_unbound;
-        bool is_pitch_unbound;
-        vec2 bounds_low;
-        vec2 bounds_high;
+        vec2 TwistRate;
+        bool IsYawUnbound;
+        bool IsPitchUnbound;
+        vec2 BoundsLow;
+        vec2 BoundsHigh;
     };
 
     struct TorsoStats {
-        TwistBounds torso;
-        TwistBounds arm;
+        TwistBounds Torso;
+        TwistBounds Arm;
     };
 
-    TorsoStats* torso_stats = nullptr;
+    TorsoStats* TorsoStats = nullptr;
 
 public:
-    inline static HeadAim* instance;
+    inline static HeadAim* Instance;
 
     HeadAim() {
-        instance = this;
-        plugin_name = "HeadAim";
+        Instance      = this;
+        PluginName    = "HeadAim";
+        PluginVersion = "2.0.0";
     }
 
-    ~HeadAim() override { remove_all_event_hooks(); }
-
-    void on_pre_engine_tick(API::UGameEngine* engine, const float delta) override {
-        if (const auto active_pawn = API::get()->get_local_pawn(0); active_pawn != pawn) {
-            in_mech = on_new_pawn(active_pawn);
+    virtual void on_pre_engine_tick(API::UGameEngine* engine, const float delta) override {
+        if (const auto activePawn = API::get()->get_local_pawn(0); activePawn != Pawn) {
+            InMech = OnNewPawn(activePawn);
         }
 
-        this->delta = delta;
+        this->Delta = delta;
 
-        if (in_mech && *head_aim_mode == ARMS_ONLY) {
+        if (InMech && *HeadAimMode == HeadAimMode::ArmsOnly) {
             // LastRelativeViewRotator is used by the targeting logic, setting this here doesn't seem to affect anything else but targeting
-            *last_view_rotator = vec3(head_target->y + torso_rotation->y, head_target->x + torso_rotation->x, 0.0f);
+            *LastViewRotator = vec3(HeadTarget->y + TorsoRotation->y, HeadTarget->x + TorsoRotation->x, 0.0f);
         }
     }
 
-    static void* on_torso_twist(API::UObject*, FFrame*, void* const) {
-        instance->update_head_aim();
+    static void* OnTorsoTwist(API::UObject*, FFrame*, void* const) {
+        Instance->UpdateHeadAim();
         return nullptr;
     }
 
-    static void* on_set_target(API::UObject*, FFrame* frame, void* const) {
-        *instance->current_target = *frame->get_params<void**>();
-        *instance->previous_friendly_target = nullptr;
-        *instance->previous_hostile_target = nullptr;
-        *instance->pending_lock_target = nullptr;
-        *instance->locked_on_target_override = nullptr;
+    static void* OnSetTarget(API::UObject*, FFrame* frame, void* const) {
+        *Instance->CurrentTarget          = *frame->GetParams<void**>();
+        *Instance->PreviousFriendlyTarget = nullptr;
+        *Instance->PreviousHostileTarget  = nullptr;
+        *Instance->PendingLockTarget      = nullptr;
+        *Instance->LockedOnTargetOverride = nullptr;
         return nullptr;
     }
 
 private:
-    bool on_new_pawn(API::UObject* active_pawn) {
-        if (pawn) {
-            remove_all_event_hooks_with_log();
-        }
+    bool OnNewPawn(API::UObject* activePawn) {
+        if (Pawn)
+            RemoveAllEventHooks(true);
 
-        pawn = active_pawn;
-        if (!active_pawn)
+        Pawn = activePawn;
+        if (!activePawn)
             return false;
 
-        API::UObject *mech_view_c, *mech_mesh_c, *cockpit_c, *torso_twist_c, *mech_cockpit, *user_settings, *vr_hudmanager, *mech_root_c,
-            *target_tracking_c, *lock_on_c;
+        API::UObject* mechViewC,* mechMeshC,* cockpitC,* torsoTwistC,* mechCockpit,* userSettings,* vrHUDManager,* mechRootC,* targetTrackingC,* lockOnC;
 
-        const auto player_controller = API::get()->get_player_controller(0);
+        const auto playerController = API::get()->get_player_controller(0);
 
-        bool success =
-            try_get_property(pawn, L"MechViewComponent", mech_view_c) && try_get_property(pawn, L"MechMeshComponent", mech_mesh_c);
+        bool success = TryGetProperty(Pawn, L"MechViewComponent", mechViewC) && TryGetProperty(Pawn, L"MechMeshComponent", mechMeshC);
 
         if (!success) {
-            log_info("Failed to get Mech references - probably not in a Mech");
+            LogInfo("Failed to get Mech references - probably not in a Mech");
             return false;
         }
 
-        success = try_get_property(mech_mesh_c, L"FirstPersonCockpitComponent", cockpit_c) &&
-                  try_get_property(cockpit_c, L"ChildActor", mech_cockpit) &&
-                  try_get_property_struct(mech_cockpit, L"HeadAimMode", head_aim_mode) &&
-                  try_get_property(pawn, L"TorsoTwistComponent", torso_twist_c) &&
-                  try_get_property_struct(torso_twist_c, L"bArmlockEnabled", armlock_enabled) &&
-                  try_get_property_struct(torso_twist_c, L"ArmTwist", arm_twist) &&
-                  try_get_property_struct(mech_view_c, L"TargetRelativeViewRotator", target_view_rotator) &&
-                  try_get_property_struct(mech_view_c, L"LastRelativeViewRotator", last_view_rotator) &&
-                  try_get_property_struct(torso_twist_c, L"TorsoStats", torso_stats) &&
-                  try_get_property(player_controller, L"MWGameUserSettings", user_settings) &&
-                  try_get_property_struct(user_settings, L"EnableArmLock", enable_arm_lock) &&
-                  try_get_property(mech_cockpit, L"VR_HUDManager", vr_hudmanager) &&
-                  try_get_property_struct(vr_hudmanager, L"ZoomLevel", zoom_level) &&
-                  try_get_property(mech_cockpit, L"VR_HeadCrosshairRotator", vr_headcrosshairrotator) &&
-                  try_get_property_struct(vr_headcrosshairrotator, L"RelativeRotation", head_crosshair_rotator) &&
-                  try_get_property_struct(torso_twist_c, L"TorsoTwist", torso_rotation) &&
-                  try_get_property(pawn, L"RootComponent", mech_root_c) &&
-                  try_get_property_struct(mech_root_c, L"RelativeRotation", mech_relative_rotation) &&
-                  try_get_property_struct(mech_cockpit, L"HeadAimPitchOffset", head_aim_pitch_offset) &&
-                  try_get_property_struct(mech_cockpit, L"HeadAimYawOffset", head_aim_yaw_offset) &&
-                  try_get_property_struct(mech_cockpit, L"HeadTarget", head_target) &&
-                  try_get_property_struct(mech_cockpit, L"ArmsTarget", arms_target) &&
-                  try_get_property_struct(mech_cockpit, L"HeadAimLocked", head_aim_locked) &&
-                  try_get_property(pawn, L"TargetTracking", target_tracking_c) &&
-                  try_get_property_struct(target_tracking_c, L"CurrentTarget", current_target) &&
-                  try_get_property_struct(target_tracking_c, L"PreviousFriendlyTarget", previous_friendly_target) &&
-                  try_get_property_struct(target_tracking_c, L"PreviousHostileTarget", previous_hostile_target) &&
-                  try_get_property(pawn, L"LockOnComponent", lock_on_c) &&
-                  try_get_property_struct(lock_on_c, L"PendingLockTarget", pending_lock_target) &&
-                  try_get_property_struct(lock_on_c, L"LockedOnTargetOverride", locked_on_target_override);
+        success = TryGetProperty(mechMeshC, L"FirstPersonCockpitComponent", cockpitC) &&
+                  TryGetProperty(cockpitC, L"ChildActor", mechCockpit) &&
+                  TryGetPropertyStruct(mechCockpit, L"HeadAimMode", HeadAimMode) &&
+                  TryGetProperty(Pawn, L"TorsoTwistComponent", torsoTwistC) &&
+                  TryGetPropertyStruct(torsoTwistC, L"bArmlockEnabled", ArmlockEnabled) &&
+                  TryGetPropertyStruct(torsoTwistC, L"ArmTwist", ArmTwist) &&
+                  TryGetPropertyStruct(mechViewC, L"TargetRelativeViewRotator", TargetViewRotator) &&
+                  TryGetPropertyStruct(mechViewC, L"LastRelativeViewRotator", LastViewRotator) &&
+                  TryGetPropertyStruct(torsoTwistC, L"TorsoStats", TorsoStats) &&
+                  TryGetProperty(playerController, L"MWGameUserSettings", userSettings) &&
+                  TryGetPropertyStruct(userSettings, L"EnableArmLock", EnableArmLock) &&
+                  TryGetProperty(mechCockpit, L"VR_HUDManager", vrHUDManager) &&
+                  TryGetPropertyStruct(vrHUDManager, L"ZoomLevel", ZoomLevel) &&
+                  TryGetProperty(mechCockpit, L"VR_HeadCrosshairRotator", VRHeadCrosshairRotator) &&
+                  TryGetPropertyStruct(VRHeadCrosshairRotator, L"RelativeRotation", HeadCrosshairRotator) &&
+                  TryGetPropertyStruct(torsoTwistC, L"TorsoTwist", TorsoRotation) &&
+                  TryGetProperty(Pawn, L"RootComponent", mechRootC) &&
+                  TryGetPropertyStruct(mechRootC, L"RelativeRotation", MechRelativeRotation) &&
+                  TryGetPropertyStruct(mechCockpit, L"HeadAimPitchOffset", HeadAimPitchOffset) &&
+                  TryGetPropertyStruct(mechCockpit, L"HeadAimYawOffset", HeadAimYawOffset) &&
+                  TryGetPropertyStruct(mechCockpit, L"HeadTarget", HeadTarget) &&
+                  TryGetPropertyStruct(mechCockpit, L"ArmsTarget", ArmsTarget) &&
+                  TryGetPropertyStruct(mechCockpit, L"HeadAimLocked", HeadAimLocked) &&
+                  TryGetProperty(Pawn, L"TargetTracking", targetTrackingC) &&
+                  TryGetPropertyStruct(targetTrackingC, L"CurrentTarget", CurrentTarget) &&
+                  TryGetPropertyStruct(targetTrackingC, L"PreviousFriendlyTarget", PreviousFriendlyTarget) &&
+                  TryGetPropertyStruct(targetTrackingC, L"PreviousHostileTarget", PreviousHostileTarget) &&
+                  TryGetProperty(Pawn, L"LockOnComponent", lockOnC) &&
+                  TryGetPropertyStruct(lockOnC, L"PendingLockTarget", PendingLockTarget) &&
+                  TryGetPropertyStruct(lockOnC, L"LockedOnTargetOverride", LockedOnTargetOverride);
 
         if (!success) {
-            log_info("Failed to get cockpit references, retrying next frame...");
-            pawn = nullptr;
+            LogInfo("Failed to get cockpit references, retrying next frame...");
+            Pawn = nullptr;
             return false;
         }
 
-        if (!add_event_hook(mech_cockpit->get_class(), L"OnTorsoTwist", &on_torso_twist))
+        if (!AddEventHook(mechCockpit->get_class(), L"OnTorsoTwist", &OnTorsoTwist))
             return false;
 
-        if (!add_event_hook(mech_cockpit->get_class(), L"OnSetTarget", &on_set_target))
+        if (!AddEventHook(mechCockpit->get_class(), L"OnSetTarget", &OnSetTarget))
             return false;
 
-        log_info("Mech references found and hooks enabled");
+        LogInfo("Mech references found and hooks enabled");
         return true;
     }
 
-    static vec3 euler_angles_from_quat(const quat& q) {
-        const auto rot = mat4{q};
-        float pitch = 0.0f;
-        float yaw = 0.0f;
-        float roll = 0.0f;
+    static vec3 EulerAnglesFromQuat(const quat& q) {
+        const auto rot   = mat4{q};
+        float      pitch = 0.0f;
+        float      yaw   = 0.0f;
+        float      roll  = 0.0f;
         extractEulerAngleYXZ(rot, yaw, pitch, roll);
         return {pitch, -yaw, -roll};
     }
 
-    vec3 get_hmd_rotation() const {
-        UEVR_Vector3f pose;
+    vec3 GetHMDRotation() const {
+        UEVR_Vector3f    pose;
         UEVR_Quaternionf rot, offset;
-        const auto hmd_index = API::get()->param()->vr->get_hmd_index();
+        const auto       hmdIndex = API::get()->param()->vr->get_hmd_index();
 
-        API::get()->param()->vr->get_pose(hmd_index, &pose, &rot);
+        API::get()->param()->vr->get_pose(hmdIndex, &pose, &rot);
         API::get()->param()->vr->get_rotation_offset(&offset);
 
-        const quat quat_rot(rot.w, rot.x, rot.y, rot.z);
-        const quat quat_rot_offset(offset.w, offset.x, offset.y, offset.z);
-        const quat combined_rot = normalize(quat_rot_offset * quat_rot);
-        vec3 euler = degrees(euler_angles_from_quat(combined_rot));
-        euler.x += *head_aim_pitch_offset;
-        euler.y += *head_aim_yaw_offset;
+        const quat quatRot(rot.w, rot.x, rot.y, rot.z);
+        const quat quatRotOffset(offset.w, offset.x, offset.y, offset.z);
+        const quat combinedRot = normalize(quatRotOffset * quatRot);
+        vec3       euler       = degrees(EulerAnglesFromQuat(combinedRot));
+        euler.x += *HeadAimPitchOffset;
+        euler.y += *HeadAimYawOffset;
 
         return euler;
     }
 
-    void update_head_aim() {
-        switch (*head_aim_mode) {
-        case ARMS_ONLY:
-            arms_only();
+    void UpdateHeadAim() {
+        switch (*HeadAimMode) {
+        case HeadAimMode::ArmsOnly:
+            ArmsOnly();
             break;
-        case TORSO_AND_ARMS:
-            torso_and_arms();
+        case HeadAimMode::TorsoAndArms:
+            TorsoAndArms();
             break;
-        case DISABLED:
-        default:
+        case HeadAimMode::Disabled:
             break;
         }
     }
 
-    float recenter_hack_offset = 0.000001f;
+    float RecenterHackOffset = 0.000001f;
 
-    void arms_only() {
-        const vec3 hmd_rotation = get_hmd_rotation();
+    void ArmsOnly() {
+        const vec3 hmdRotation = GetHMDRotation();
 
-        update_head_aim_target({hmd_rotation.y, hmd_rotation.x});
+        UpdateHeadAimTarget({hmdRotation.y, hmdRotation.x});
 
-        vec2 target_rotation;
-        if (*armlock_enabled == *enable_arm_lock) {
-            *head_aim_locked = false;
-            target_rotation = *arms_target;
+        vec2 targetRotation;
+        if (*ArmlockEnabled == *EnableArmLock) {
+            *HeadAimLocked = false;
+            targetRotation = *ArmsTarget;
         } else {
-            target_rotation = vec2(0, 0);
-            *arms_target = vec2(0, 0);
-            *head_aim_locked = true;
+            targetRotation = vec2(0, 0);
+            *ArmsTarget    = vec2(0, 0);
+            *HeadAimLocked = true;
         }
 
-        target_rotation /= *zoom_level;
+        targetRotation /= *ZoomLevel;
 
-        const vec2 rotation_diff = target_rotation - current_rotation;
-        const vec2 rotation_rate = torso_stats->arm.twist_rate;
+        const vec2 rotationDiff = targetRotation - CurrentRotation;
+        const vec2 rotationRate = TorsoStats->Arm.TwistRate;
 
-        const vec2 force = ARM_SPRING_CONSTANT * rotation_diff - ARM_DAMPING_CONSTANT * current_velocity;
-        current_velocity += force * delta;
-        current_velocity = clamp(current_velocity, -rotation_rate, rotation_rate);
-        current_rotation += current_velocity * delta;
+        const vec2 force = ARM_SPRING_CONSTANT * rotationDiff - ARM_DAMPING_CONSTANT * CurrentVelocity;
+        CurrentVelocity += force * Delta;
+        CurrentVelocity = clamp(CurrentVelocity, -rotationRate, rotationRate);
+        CurrentRotation += CurrentVelocity * Delta;
 
-        current_rotation = {clamp(current_rotation.x, torso_stats->arm.bounds_low.x, torso_stats->arm.bounds_high.x),
-            clamp(current_rotation.y, torso_stats->arm.bounds_low.y, torso_stats->arm.bounds_high.y)};
+        CurrentRotation = {
+            clamp(CurrentRotation.x, TorsoStats->Arm.BoundsLow.x, TorsoStats->Arm.BoundsHigh.x),
+            clamp(CurrentRotation.y, TorsoStats->Arm.BoundsLow.y, TorsoStats->Arm.BoundsHigh.y)
+        };
 
-        *arm_twist = current_rotation + *torso_rotation;
+        *ArmTwist = CurrentRotation + *TorsoRotation;
 
-        // Imperceptable alternating jitter added to torso rotation to stop game's C++ from locking the arm target to center once stable
-        torso_rotation->x = torso_rotation->x + recenter_hack_offset;
-        recenter_hack_offset *= -1.0f;
+        // Imperceptible alternating jitter added to torso rotation to stop game's C++ from locking the arm target to center once stable
+        TorsoRotation->x = TorsoRotation->x + RecenterHackOffset;
+        RecenterHackOffset *= -1.0f;
     }
 
-    void update_head_aim_target(const vec2& target_head_rotation) {
-        constexpr float max_distance = 2.0f;
-        constexpr float min_interp = 0.05f;
-        constexpr float max_interp = 1.0f;
+    void UpdateHeadAimTarget(const vec2& targetHeadRotation) {
+        constexpr float maxDistance = 2.0f;
+        constexpr float minInterp   = 0.05f;
+        constexpr float maxInterp   = 1.0f;
 
-        const float distance = length(target_head_rotation - smoothed_head_rotation);
-        const float smoothing_factor = min_interp + min((distance / max_distance), 1.0f) * (max_interp - min_interp);
+        const float distance        = length(targetHeadRotation - SmoothedHeadRotation);
+        const float smoothingFactor = minInterp + min((distance / maxDistance), 1.0f) * (maxInterp - minInterp);
 
-        smoothed_head_rotation = lerp(smoothed_head_rotation, target_head_rotation, smoothing_factor);
-        *head_target = smoothed_head_rotation;
-        *arms_target = {clamp(head_target->x, torso_stats->arm.bounds_low.x, torso_stats->arm.bounds_high.x),
-            clamp(head_target->y, torso_stats->arm.bounds_low.y, torso_stats->arm.bounds_high.y)};
+        SmoothedHeadRotation = lerp(SmoothedHeadRotation, targetHeadRotation, smoothingFactor);
+        *HeadTarget          = SmoothedHeadRotation;
+        *ArmsTarget          = {
+            clamp(HeadTarget->x, TorsoStats->Arm.BoundsLow.x, TorsoStats->Arm.BoundsHigh.x),
+            clamp(HeadTarget->y, TorsoStats->Arm.BoundsLow.y, TorsoStats->Arm.BoundsHigh.y)
+        };
     }
 
-    void torso_and_arms() const {
-        const auto hmd_rotation = get_hmd_rotation();
-        target_view_rotator->x = hmd_rotation.x + torso_rotation->y;
-        target_view_rotator->y = hmd_rotation.y + torso_rotation->x;
-        target_view_rotator->z = 0;
+    void TorsoAndArms() const {
+        const auto hmdRotation = GetHMDRotation();
+        TargetViewRotator->x   = hmdRotation.x + TorsoRotation->y;
+        TargetViewRotator->y   = hmdRotation.y + TorsoRotation->x;
+        TargetViewRotator->z   = 0;
     }
 };
 
-std::unique_ptr<HeadAim> g_plugin{new HeadAim()};
+// ReSharper disable once CppInconsistentNaming
+std::unique_ptr<HeadAim> g_plugin{new HeadAim()}; // NOLINT(misc-use-internal-linkage)
