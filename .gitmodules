@@ -1,6 +1,3 @@
-[submodule "ext/uevr"]
-	path = ext/uevr
-	url = https://github.com/praydog/UEVR.git
 [submodule "ext/glm"]
 	path = ext/glm
 	url = https://github.com/g-truc/glm
