@@ -88,6 +88,8 @@ private:
 
     struct StateBackup {
         ID3D11DeviceContext*            Context;
+        ComPtr<ID3D11VertexShader>      VertexShader;
+        ComPtr<ID3D11PixelShader>       PixelShader;
         ComPtr<ID3D11RenderTargetView>  RTV;
         ComPtr<ID3D11DepthStencilView>  DSV;
         ComPtr<ID3D11BlendState>        BlendState;
@@ -100,8 +102,14 @@ private:
         UINT                            NumViewports = 1;
         ComPtr<ID3D11InputLayout>       InputLayout;
         D3D11_PRIMITIVE_TOPOLOGY        Topology{};
+        ComPtr<ID3D11Buffer>            VertexBuffer;
+        UINT                            VBStride;
+        UINT                            VBOffset;
 
         explicit StateBackup(ID3D11DeviceContext* inCtx) : Context(inCtx) {
+            Context->VSGetShader(VertexShader.GetAddressOf(), nullptr, nullptr);
+            Context->PSGetShader(PixelShader.GetAddressOf(), nullptr, nullptr);
+
             Context->OMGetRenderTargets(1, RTV.GetAddressOf(), DSV.GetAddressOf());
             Context->OMGetBlendState(BlendState.GetAddressOf(), BlendFactor, &SampleMask);
             Context->OMGetDepthStencilState(DepthStencilState.GetAddressOf(), &StencilRef);
@@ -111,9 +119,14 @@ private:
 
             Context->IAGetInputLayout(InputLayout.GetAddressOf());
             Context->IAGetPrimitiveTopology(&Topology);
+
+            Context->IAGetVertexBuffers(0, 1, VertexBuffer.GetAddressOf(), &VBStride, &VBOffset);
         }
 
         ~StateBackup() {
+            Context->VSSetShader(VertexShader.Get(), nullptr, 0);
+            Context->PSSetShader(PixelShader.Get(), nullptr, 0);
+
             Context->OMSetRenderTargets(1, RTV.GetAddressOf(), DSV.Get());
             Context->OMSetBlendState(BlendState.Get(), BlendFactor, SampleMask);
             Context->OMSetDepthStencilState(DepthStencilState.Get(), StencilRef);
@@ -123,6 +136,8 @@ private:
 
             Context->IASetInputLayout(InputLayout.Get());
             Context->IASetPrimitiveTopology(Topology);
+
+            Context->IASetVertexBuffers(0, 1, VertexBuffer.GetAddressOf(), &VBStride, &VBOffset);
         }
     };
 

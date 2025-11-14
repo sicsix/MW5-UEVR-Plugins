@@ -1,7 +1,7 @@
 Texture2D    Tex0 : register(t0);
 SamplerState Samp0 : register(s0);
 
-cbuffer PSConstants : register(b0) {
+cbuffer PSConstants : register(b13) {
     float Brightness;
     float Padding[3];
 }

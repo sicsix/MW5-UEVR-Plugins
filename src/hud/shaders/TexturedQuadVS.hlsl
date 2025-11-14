@@ -1,4 +1,4 @@
-cbuffer VSConstants : register(b0) {
+cbuffer VSConstants : register(b13) {
     row_major float4x4 MVP;
 }
 

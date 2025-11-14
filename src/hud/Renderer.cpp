@@ -278,18 +278,18 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
                          FRDGTexture*                                renderTarget,
                          bool                                        inMech) {
     ID3D11Device*        rawDevice = nullptr;
-    ComPtr<ID3D11Device> dev;
+    ComPtr<ID3D11Device> dvc;
     // Flushes command list
     FRHICommandList::GetNativeDevice(&rawDevice);
-    dev = rawDevice;
+    dvc = rawDevice;
 
-    if (!dev) {
+    if (!dvc) {
         Log::LogError("Failed to get RHI device");
         return;
     }
 
     ComPtr<ID3D11DeviceContext> ctx = nullptr;
-    dev->GetImmediateContext(ctx.GetAddressOf());
+    dvc->GetImmediateContext(ctx.GetAddressOf());
     if (!ctx) {
         Log::LogError("Failed to get context");
         return;
@@ -316,12 +316,12 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
         return;
     }
 
-    if (!EnsurePipeline(dev.Get())) {
+    if (!EnsurePipeline(dvc.Get())) {
         Log::LogError("Failed to build pipeline");
         return;
     }
 
-    if (!HUDTarget.Ensure(dev.Get(), outRT)) {
+    if (!HUDTarget.Ensure(dvc.Get(), outRT)) {
         Log::LogError("Failed to build hud target");
         return;
     }
@@ -334,7 +334,7 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
     outRTVDesc.Format             = rtDesc.Format;
     outRTVDesc.ViewDimension      = D3D11_RTV_DIMENSION_TEXTURE2D;
     outRTVDesc.Texture2D.MipSlice = 0;
-    if (HRESULT hr = dev->CreateRenderTargetView(outRT, &outRTVDesc, outRTV.GetAddressOf()); FAILED(hr)) {
+    if (HRESULT hr = dvc->CreateRenderTargetView(outRT, &outRTVDesc, outRTV.GetAddressOf()); FAILED(hr)) {
         Log::LogError("Failed to create RTV for output texture (0x%08X)", hr);
         return;
     }
@@ -346,7 +346,7 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
     ctx->VSSetShader(TexturedQuadVS.Get(), nullptr, 0);
     ctx->PSSetShader(PassthroughPS.Get(), nullptr, 0);
     ID3D11Buffer* vsCbs[] = {QuadConstantsCB.Get()};
-    ctx->VSSetConstantBuffers(0, 1, vsCbs);
+    ctx->VSSetConstantBuffers(13, 1, vsCbs);
 
     constexpr FLOAT blendFactor[4] = {0, 0, 0, 0};
     ctx->OMSetBlendState(BlendStateHUDCompose.Get(), blendFactor, 0xffffffff);
@@ -383,7 +383,7 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
                     return;
 
                 if (!ZoomCameraMarkerRTV || !ZoomCameraMarkerSRV) {
-                    CreateZoomCameraMarkerRT(dev.Get(), torsoCrosshair.RenderTargetSizeX, torsoCrosshair.RenderTargetSizeY, ZoomCameraMarkerTexture, ZoomCameraMarkerRTV,
+                    CreateZoomCameraMarkerRT(dvc.Get(), torsoCrosshair.RenderTargetSizeX, torsoCrosshair.RenderTargetSizeY, ZoomCameraMarkerTexture, ZoomCameraMarkerRTV,
                                              ZoomCameraMarkerSRV);
                     if (!ZoomCameraMarkerRTV || !ZoomCameraMarkerSRV)
                         return;
@@ -400,7 +400,7 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
                 ctx->RSSetViewports(1, &zoomCamViewport);
                 ctx->OMSetRenderTargets(1, ZoomCameraMarkerRTV.GetAddressOf(), nullptr);
                 ctx->ClearRenderTargetView(ZoomCameraMarkerRTV.Get(), clearColor);
-                // Use the composite shader, we only want to draw in sRGB without brightness adjustment, this will be done later
+                // Use the passthrough shader, we only want to draw in sRGB without brightness adjustment, this will be done later
                 ctx->PSSetShader(PassthroughPS.Get(), nullptr, 0);
 
                 // Render markers to the 2D camera overlay RT - corrective scale has already been applied in the MVPs and the MVPs are from the 2D camera
@@ -410,7 +410,6 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
             if (!ZoomCameraMarkerRTV || !ZoomCameraMarkerSRV)
                 return;
 
-            // For both eyes, composite the 2D camera overlay RT back onto the main RT
             // Use the MVP for rendering the TorsoCrosshair widget - it will be the exact same dimensions and location
             ctx->RSSetViewports(1, &viewPort);
             ctx->OMSetRenderTargets(1, HUDTarget.RTV.GetAddressOf(), nullptr);
@@ -473,10 +472,10 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
     float2 uvOffset = {viewPort.TopLeftX != 0.0f ? 0.5f : 0.0f, 0.0f};
 
     ID3D11Buffer* vsCBs[] = {VSConstantsCB.Get()};
-    ctx->VSSetConstantBuffers(0, 1, vsCBs);
+    ctx->VSSetConstantBuffers(13, 1, vsCBs);
 
     ID3D11Buffer* psCBs[] = {PSConstantsCB.Get()};
-    ctx->PSSetConstantBuffers(0, 1, psCBs);
+    ctx->PSSetConstantBuffers(13, 1, psCBs);
 
     if (D3D11_MAPPED_SUBRESOURCE m; SUCCEEDED(ctx->Map(VSConstantsCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
         auto* vs     = (VSConstants*)m.pData;
@@ -491,7 +490,6 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
         ctx->Unmap(PSConstantsCB.Get(), 0);
     }
 
-    // Copy scene color to main render target
     ctx->PSSetShaderResources(0, 1, &sceneSRV);
     ctx->OMSetBlendState(BlendStateOverwrite.Get(), blendFactor, 0xffffffff);
     ctx->PSSetShader(PassthroughPS.Get(), nullptr, 0);

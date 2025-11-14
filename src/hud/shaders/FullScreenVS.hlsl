@@ -1,4 +1,4 @@
-cbuffer VSConstants : register(b0) {
+cbuffer VSConstants : register(b13) {
     float2 UVScale;
     float2 UVOffset;
 }

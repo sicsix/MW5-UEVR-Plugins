@@ -323,20 +323,15 @@ mat4 HUD::GetModelMatrix(const mat4& localToWorld, const int32_t sizeX, const in
     return m;
 }
 
-void HUD::PostProcessMotionBlur_AddMotionBlurVelocityPass(FRDGBuilder*                graphBuilder,
-                                                          const FViewInfo&            view,
-                                                          const FMotionBlurViewports& viewports,
-                                                          FRDGTexture*                colorTexture,
-                                                          FRDGTexture*                depthTexture,
-                                                          FRDGTexture*                velocityTexture,
-                                                          FRDGTexture**               velocityFlatTextureOutput,
-                                                          FRDGTexture**               velocityTileTextureOutput) {
-    // Keep this if not using DLSS otherwise everything breaks
-    if (Instance->DLSSCurrentlyEnabled)
-        return;
-
-    return PostProcessMotionBlur::AddMotionBlurVelocityPass.OriginalFn(graphBuilder, view, viewports, colorTexture, depthTexture, velocityTexture, velocityFlatTextureOutput,
-                                                                       velocityTileTextureOutput);
+void HUD::PostProcessMotionBlur_AddMotionBlurVelocityPass(FRDGBuilder*,
+                                                          const FViewInfo&,
+                                                          const FMotionBlurViewports&,
+                                                          FRDGTexture*,
+                                                          FRDGTexture*,
+                                                          FRDGTexture*,
+                                                          FRDGTexture**,
+                                                          FRDGTexture**) {
+    // Skip this, it's part of motion blur which we don't want to use
 }
 
 void HUD::FMotionBlurFilterPS_TRDGLambdaPass_ExecuteImpl(FMotionBlurFilterPS::TRDGLambdaPass* self, FRHICommandList*) {
