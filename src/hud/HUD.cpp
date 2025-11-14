@@ -7,7 +7,7 @@ HUD::HUD() {
     Instance                  = this;
     PluginExtension::Instance = this;
     PluginName                = "HUD";
-    PluginVersion             = "2.0.3";
+    PluginVersion             = "2.0.4";
     Renderer                  = new ::Renderer();
 }
 
@@ -53,7 +53,6 @@ void HUD::FRendererModule_BeginRenderingViewFamily(FRendererModule* self, FCanva
 
     // This is on the game thread, read the current values for this frame here to avoid threading issues from reading on the render thread
     Instance->CurrentlyInMech       = Instance->ValidateMech();
-    Instance->DLSSCurrentlyEnabled  = Instance->CurrentlyInMech && Instance->DLSSEnabled ? *Instance->DLSSEnabled : false;
     Instance->InMech[frameIndex]    = Instance->CurrentlyInMech;
     Instance->ZoomLevel[frameIndex] = Instance->CurrentZoomLevel ? *Instance->CurrentZoomLevel : 1.0f;
     Instance->CurrentBrightness     = Instance->Brightness ? *Instance->Brightness : 1.0f;
@@ -63,7 +62,6 @@ void HUD::Reset() {
     Pawn              = nullptr;
     TargetBoxId       = {};
     Brightness        = nullptr;
-    DLSSEnabled       = nullptr;
     CurrentZoomLevel  = nullptr;
     Brightness        = nullptr;
     CurrentBrightness = 1.0f;
@@ -125,8 +123,7 @@ bool HUD::OnNewPawn(API::UObject* activePawn) {
               TryGetProperty(mechCockpit, L"VR_TargetBox", targetBox) &&
               TryGetProperty(mechCockpit, L"VR_HUDManager", hudManager) &&
               TryGetPropertyStruct(hudManager, L"Brightness", Brightness) &&
-              TryGetPropertyStruct(hudManager, L"ZoomLevel", CurrentZoomLevel) &&
-              TryGetPropertyStruct(mechCockpit, L"DLSSEnabled", DLSSEnabled);
+              TryGetPropertyStruct(hudManager, L"ZoomLevel", CurrentZoomLevel);
 
     if (!success) {
         LogInfo("Failed to get Mech HUD references, retrying next frame...");

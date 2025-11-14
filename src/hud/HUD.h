@@ -20,7 +20,6 @@ private:
     float*                              CurrentZoomLevel  = nullptr;
     float*                              Brightness        = nullptr;
     float                               CurrentBrightness = 1.0f;
-    bool*                               DLSSEnabled       = nullptr;
     HUDWidgetRenderData                 HUDWidgets[4]{};
     std::vector<MarkerWidgetRenderData> MarkerWidgets[3]{};
     float                               ZoomLevel[3]{};
