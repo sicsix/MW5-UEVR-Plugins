@@ -7,7 +7,7 @@ HUD::HUD() {
     Instance                  = this;
     PluginExtension::Instance = this;
     PluginName                = "HUD";
-    PluginVersion             = "2.0.2";
+    PluginVersion             = "2.0.3";
     Renderer                  = new ::Renderer();
 }
 

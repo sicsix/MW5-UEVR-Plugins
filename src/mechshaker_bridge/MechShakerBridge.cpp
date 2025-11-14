@@ -36,7 +36,7 @@ public:
     MechShakerBridge() {
         Instance      = this;
         PluginName    = "MechShakerBridge";
-        PluginVersion = "2.0.1";
+        PluginVersion = "2.0.2";
     }
 
     virtual ~MechShakerBridge() override {
