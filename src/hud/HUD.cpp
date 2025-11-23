@@ -7,15 +7,15 @@ HUD::HUD() {
     Instance                  = this;
     PluginExtension::Instance = this;
     PluginName                = "HUD";
-    PluginVersion             = "2.0.4";
+    PluginVersion             = "2.0.5";
     Renderer                  = new ::Renderer();
 }
 
 HUD::~HUD() {
     FWidget3DSceneProxy::GetDynamicMeshElements.Uninstall();
     FWidget3DSceneProxy::CanBeOccluded.Uninstall();
-    PostProcessMotionBlur::AddMotionBlurVelocityPass.Uninstall();
     FMotionBlurFilterPS::TRDGLambdaPass::ExecuteImpl.Uninstall();
+    PostProcessMotionBlur::AddMotionBlurVelocityPass.Uninstall();
     FRendererModule::BeginRenderingViewFamily.Uninstall();
     SCanvas::OnPaint.Uninstall();
 }
@@ -59,11 +59,11 @@ void HUD::FRendererModule_BeginRenderingViewFamily(FRendererModule* self, FCanva
 }
 
 void HUD::Reset() {
+    CurrentlyInMech   = false;
     Pawn              = nullptr;
     TargetBoxId       = {};
     Brightness        = nullptr;
     CurrentZoomLevel  = nullptr;
-    Brightness        = nullptr;
     CurrentBrightness = 1.0f;
 
     for (auto& w : HUDWidgets) {
@@ -87,14 +87,11 @@ void HUD::Reset() {
     for (auto& im : InMech) {
         im = false;
     }
-
-    CurrentlyInMech      = false;
-    DLSSCurrentlyEnabled = false;
 }
 
 bool HUD::OnNewPawn(API::UObject* activePawn) {
     if (Pawn) {
-        RemoveAllEventHooks(true);
+        RemoveAllEventHooks(false);
         Reset();
     }
 
@@ -308,15 +305,15 @@ mat4 HUD::GetModelMatrix(const mat4& localToWorld, const int32_t sizeX, const in
     const float scaleRatio = (float)sizeY / (float)sizeX;
 
     auto scale = vec3{1, 1, 1} * zoomScale;
-    scale *= scaleMult;
-    scale.y *= scaleRatio;
+    scale      *= scaleMult;
+    scale.y    *= scaleRatio;
 
     auto m = localToWorld;
     m      = rotate(m, glm::half_pi<float>(), vec3(0, 1, 0));
     m      = rotate(m, glm::half_pi<float>(), vec3(0, 0, 1));
-    m[0] *= scale.x;
-    m[1] *= scale.y;
-    m[2] *= scale.z;
+    m[0]   *= scale.x;
+    m[1]   *= scale.y;
+    m[2]   *= scale.z;
     return m;
 }
 
@@ -349,7 +346,7 @@ void HUD::FMotionBlurFilterPS_TRDGLambdaPass_ExecuteImpl(FMotionBlurFilterPS::TR
 bool HUD::ValidateMech() {
     if (!API::get()->param()->vr->is_runtime_ready()) {
         if (Pawn != nullptr) {
-            RemoveAllEventHooks(true);
+            RemoveAllEventHooks(false);
             Reset();
         }
         return false;

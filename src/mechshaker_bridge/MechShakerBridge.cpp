@@ -14,8 +14,8 @@ class MechShakerBridge final : public PluginExtension {
     };
 
     struct ControlBlock {
-        std::atomic<size_t> WriteIndex   = 0;
-        std::atomic<size_t> PacketNumber = 0;
+        int64_t WriteIndex   = 0;
+        int64_t PacketNumber = 0;
     };
 
     bool          Running           = false;
@@ -31,22 +31,32 @@ class MechShakerBridge final : public PluginExtension {
     bool FirstTick = true;
 
 public:
-    inline static MechShakerBridge* Instance;
+    inline static MechShakerBridge* Instance = nullptr;
 
     MechShakerBridge() {
         Instance      = this;
         PluginName    = "MechShakerBridge";
-        PluginVersion = "2.0.2";
+        PluginVersion = "2.0.3";
     }
 
     virtual ~MechShakerBridge() override {
         if (Running) {
             RemoveAllEventHooks(false);
-            constexpr auto closeEvent = EventData{.EventCode = -1, .Int0 = 0, .Float0 = 0, .Float1 = 0, .Float2 = 0, .Float3 = 0, .Float4 = 0, .Float5 = 0};
-            WriteToSharedMemory(&closeEvent);
-            UnmapViewOfFile(Buffer);
-            CloseHandle(MapFile);
+
+            if (Buffer) {
+                constexpr auto closeEvent = EventData{.EventCode = -1, .Int0 = 0, .Float0 = 0, .Float1 = 0, .Float2 = 0, .Float3 = 0, .Float4 = 0, .Float5 = 0};
+                WriteToSharedMemory(&closeEvent);
+                UnmapViewOfFile(Buffer);
+                Buffer = nullptr;
+            }
+
+            if (MapFile) {
+                CloseHandle(MapFile);
+                MapFile = nullptr;
+            }
         }
+
+        Instance = nullptr;
     }
 
     virtual void on_pre_engine_tick(API::UGameEngine* engine, float delta) override {
@@ -55,6 +65,9 @@ public:
     }
 
     static void* OnTelemetry(API::UObject*, FFrame* frame, void* const) {
+        if (!Instance)
+            return nullptr;
+
         Instance->WriteToSharedMemory(frame->GetParams<EventData>());
         return nullptr;
     }
@@ -69,7 +82,7 @@ private:
             return;
         }
 
-        API::UObject* controllerFeedbackC;
+        API::UObject* controllerFeedbackC = nullptr;
 
         if (!TryGetProperty(playerController, L"ControllerFeedbackComponent", controllerFeedbackC))
             return;
@@ -79,8 +92,10 @@ private:
             return;
         }
 
-        if (!SetupMemoryMappedFile())
+        if (!SetupMemoryMappedFile()) {
             RemoveAllEventHooks(true);
+            return;
+        }
 
         Running = true;
     }
@@ -99,6 +114,7 @@ private:
         if (Buffer == nullptr) {
             LogError("Could not map view of file: %i", GetLastError());
             CloseHandle(MapFile);
+            MapFile = nullptr;
             return false;
         }
 
@@ -109,13 +125,17 @@ private:
     }
 
     void WriteToSharedMemory(const EventData* eventData) {
-        const size_t offset = sizeof(ControlBlock) + CurrentWriteIndex * sizeof(EventData);
+        if (!Running || !Buffer || !Control || !eventData)
+            return;
+
+        const auto   index  = CurrentWriteIndex;
+        const size_t offset = sizeof(ControlBlock) + static_cast<size_t>(index) * sizeof(EventData);
         CurrentWriteIndex   = (CurrentWriteIndex + 1) % BUFFER_SIZE;
+
         CopyMemory(static_cast<char*>(Buffer) + offset, eventData, sizeof(EventData));
-        const size_t writeIndex   = Control->WriteIndex.load(std::memory_order_acquire);
-        const size_t packetNumber = Control->PacketNumber.load(std::memory_order_acquire);
-        Control->WriteIndex.store(CurrentWriteIndex, std::memory_order_release);
-        Control->PacketNumber.store(packetNumber + 1, std::memory_order_release);
+
+        Control->WriteIndex   = static_cast<int64_t>(index);
+        Control->PacketNumber = Control->PacketNumber + 1;
     }
 };
 

@@ -25,7 +25,6 @@ private:
     float                               ZoomLevel[3]{};
     bool                                InMech[3]{};
     bool                                CurrentlyInMech      = false;
-    bool                                DLSSCurrentlyEnabled = false;
 
     void Reset();
 

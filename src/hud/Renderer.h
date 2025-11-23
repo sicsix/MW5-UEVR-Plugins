@@ -87,9 +87,9 @@ private:
     };
 
     struct StateBackup {
-        ID3D11DeviceContext*       Context;
-        ComPtr<ID3D11VertexShader> VertexShader;
-        ComPtr<ID3D11Buffer>       VSConstantBuffer13;
+        ComPtr<ID3D11DeviceContext> Ctx;
+        ComPtr<ID3D11VertexShader>  VertexShader;
+        ComPtr<ID3D11Buffer>        VSConstantBuffer13;
 
         ComPtr<ID3D11PixelShader>        PixelShader;
         ComPtr<ID3D11SamplerState>       PixelShaderSampler;
@@ -114,46 +114,46 @@ private:
         UINT                      VertexBufferStride;
         UINT                      VertexBufferOffset;
 
-        explicit StateBackup(ID3D11DeviceContext* inCtx) : Context(inCtx) {
-            Context->VSGetShader(VertexShader.GetAddressOf(), nullptr, nullptr);
-            Context->VSGetConstantBuffers(13, 1, VSConstantBuffer13.GetAddressOf());
+        explicit StateBackup(ID3D11DeviceContext* inCtx) : Ctx(inCtx) {
+            Ctx->VSGetShader(VertexShader.GetAddressOf(), nullptr, nullptr);
+            Ctx->VSGetConstantBuffers(13, 1, VSConstantBuffer13.GetAddressOf());
 
-            Context->PSGetShader(PixelShader.GetAddressOf(), nullptr, nullptr);
-            Context->PSGetSamplers(0, 1, PixelShaderSampler.GetAddressOf());
-            Context->PSGetShaderResources(0, 1, PixelShaderSRV.GetAddressOf());
-            Context->PSGetConstantBuffers(13, 1, PixelShaderCB.GetAddressOf());
+            Ctx->PSGetShader(PixelShader.GetAddressOf(), nullptr, nullptr);
+            Ctx->PSGetSamplers(0, 1, PixelShaderSampler.GetAddressOf());
+            Ctx->PSGetShaderResources(0, 1, PixelShaderSRV.GetAddressOf());
+            Ctx->PSGetConstantBuffers(13, 1, PixelShaderCB.GetAddressOf());
 
-            Context->OMGetRenderTargets(1, RTV.GetAddressOf(), DSV.GetAddressOf());
-            Context->OMGetDepthStencilState(DepthStencilState.GetAddressOf(), &StencilRef);
-            Context->OMGetBlendState(BlendState.GetAddressOf(), BlendFactor, &SampleMask);
+            Ctx->OMGetRenderTargets(1, RTV.GetAddressOf(), DSV.GetAddressOf());
+            Ctx->OMGetDepthStencilState(DepthStencilState.GetAddressOf(), &StencilRef);
+            Ctx->OMGetBlendState(BlendState.GetAddressOf(), BlendFactor, &SampleMask);
 
-            Context->RSGetState(RS.GetAddressOf());
-            Context->RSGetViewports(&NumViewports, Viewports);
+            Ctx->RSGetState(RS.GetAddressOf());
+            Ctx->RSGetViewports(&NumViewports, Viewports);
 
-            Context->IAGetInputLayout(InputLayout.GetAddressOf());
-            Context->IAGetPrimitiveTopology(&Topology);
-            Context->IAGetVertexBuffers(0, 1, VertexBuffer.GetAddressOf(), &VertexBufferStride, &VertexBufferOffset);
+            Ctx->IAGetInputLayout(InputLayout.GetAddressOf());
+            Ctx->IAGetPrimitiveTopology(&Topology);
+            Ctx->IAGetVertexBuffers(0, 1, VertexBuffer.GetAddressOf(), &VertexBufferStride, &VertexBufferOffset);
         }
 
         ~StateBackup() {
-            Context->VSSetShader(VertexShader.Get(), nullptr, 0);
-            Context->VSSetConstantBuffers(13, 1, VSConstantBuffer13.GetAddressOf());
+            Ctx->VSSetShader(VertexShader.Get(), nullptr, 0);
+            Ctx->VSSetConstantBuffers(13, 1, VSConstantBuffer13.GetAddressOf());
 
-            Context->PSSetShader(PixelShader.Get(), nullptr, 0);
-            Context->PSSetSamplers(0, 1, PixelShaderSampler.GetAddressOf());
-            Context->PSSetShaderResources(0, 1, PixelShaderSRV.GetAddressOf());
-            Context->PSSetConstantBuffers(13, 1, PixelShaderCB.GetAddressOf());
+            Ctx->PSSetShader(PixelShader.Get(), nullptr, 0);
+            Ctx->PSSetSamplers(0, 1, PixelShaderSampler.GetAddressOf());
+            Ctx->PSSetShaderResources(0, 1, PixelShaderSRV.GetAddressOf());
+            Ctx->PSSetConstantBuffers(13, 1, PixelShaderCB.GetAddressOf());
 
-            Context->OMSetRenderTargets(1, RTV.GetAddressOf(), DSV.Get());
-            Context->OMSetDepthStencilState(DepthStencilState.Get(), StencilRef);
-            Context->OMSetBlendState(BlendState.Get(), BlendFactor, SampleMask);
+            Ctx->OMSetRenderTargets(1, RTV.GetAddressOf(), DSV.Get());
+            Ctx->OMSetDepthStencilState(DepthStencilState.Get(), StencilRef);
+            Ctx->OMSetBlendState(BlendState.Get(), BlendFactor, SampleMask);
 
-            Context->RSSetState(RS.Get());
-            Context->RSSetViewports(NumViewports, Viewports);
+            Ctx->RSSetState(RS.Get());
+            Ctx->RSSetViewports(NumViewports, Viewports);
 
-            Context->IASetInputLayout(InputLayout.Get());
-            Context->IASetPrimitiveTopology(Topology);
-            Context->IASetVertexBuffers(0, 1, VertexBuffer.GetAddressOf(), &VertexBufferStride, &VertexBufferOffset);
+            Ctx->IASetInputLayout(InputLayout.Get());
+            Ctx->IASetPrimitiveTopology(Topology);
+            Ctx->IASetVertexBuffers(0, 1, VertexBuffer.GetAddressOf(), &VertexBufferStride, &VertexBufferOffset);
         }
     };
 

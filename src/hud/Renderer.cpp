@@ -490,13 +490,14 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
         ctx->Unmap(PSConstantsCB.Get(), 0);
     }
 
+    // Copy scene color to the render target
     ctx->PSSetShaderResources(0, 1, &sceneSRV);
     ctx->OMSetBlendState(BlendStateOverwrite.Get(), blendFactor, 0xffffffff);
     ctx->PSSetShader(PassthroughPS.Get(), nullptr, 0);
     ctx->Draw(3, 0);
 
     if (inMech) {
-        // Draw HUDTarget to the main render target, applying brightness and using a mixed alpha additive blend
+        // Copy the HUD to the render target, applying brightness and using a mixed alpha additive blend
         ctx->PSSetShaderResources(0, 1, HUDTarget.SRV.GetAddressOf());
         ctx->OMSetBlendState(BlendStateHUDOverlay.Get(), blendFactor, 0xffffffff);
         ctx->PSSetShader(HUDOverlayPS.Get(), nullptr, 0);
