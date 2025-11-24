@@ -7,7 +7,7 @@ HUD::HUD() {
     Instance                  = this;
     PluginExtension::Instance = this;
     PluginName                = "HUD";
-    PluginVersion             = "2.0.5";
+    PluginVersion             = "2.0.6";
     Renderer                  = new ::Renderer();
 }
 
@@ -33,14 +33,11 @@ int32_t HUD::SCanvas_OnPaint(SCanvas* self,
                              void*    allottedGeometry,
                              void*    myCullingRect,
                              void*    outDrawElements,
-                             uint32_t layerId,
+                             int32_t  layerId,
                              void*    inWidgetStyle,
                              bool     bParentEnabled) {
-    if (Instance->InMech[0]) {
-        // Just checking the first frame index is sufficient here, a few frames of delay doesn't matter
-        // This skips rendering all 2d hud markers, excluding menus etc.
+    if (Instance->CurrentlyInMech)
         return layerId;
-    }
 
     // If we are outside the mech we will want these markers, esp for the star map view
     return SCanvas::OnPaint.OriginalFn(self, args, allottedGeometry, myCullingRect, outDrawElements, layerId, inWidgetStyle, bParentEnabled);
@@ -54,8 +51,8 @@ void HUD::FRendererModule_BeginRenderingViewFamily(FRendererModule* self, FCanva
     // This is on the game thread, read the current values for this frame here to avoid threading issues from reading on the render thread
     Instance->CurrentlyInMech       = Instance->ValidateMech();
     Instance->InMech[frameIndex]    = Instance->CurrentlyInMech;
-    Instance->ZoomLevel[frameIndex] = Instance->CurrentZoomLevel ? *Instance->CurrentZoomLevel : 1.0f;
-    Instance->CurrentBrightness     = Instance->Brightness ? *Instance->Brightness : 1.0f;
+    Instance->ZoomLevel[frameIndex] = Instance->CurrentlyInMech && Instance->CurrentZoomLevel ? *Instance->CurrentZoomLevel : 1.0f;
+    Instance->CurrentBrightness     = Instance->CurrentlyInMech && Instance->Brightness ? *Instance->Brightness : 1.0f;
 }
 
 void HUD::Reset() {
@@ -356,6 +353,12 @@ bool HUD::ValidateMech() {
         if (activePawn != Pawn)
             return OnNewPawn(activePawn);
         return CurrentlyInMech;
+    }
+
+    // We have no active pawn, reset state if we had one before
+    if (Pawn != nullptr) {
+        RemoveAllEventHooks(true);
+        Reset();
     }
 
     return false;

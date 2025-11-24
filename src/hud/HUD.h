@@ -39,7 +39,7 @@ private:
                                    void*    allottedGeometry,
                                    void*    myCullingRect,
                                    void*    outDrawElements,
-                                   uint32_t layerId,
+                                   int32_t  layerId,
                                    void*    inWidgetStyle,
                                    bool     bParentEnabled);
 

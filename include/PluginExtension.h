@@ -106,7 +106,6 @@ protected:
 
         LogInfo("Hooked %s", functionNameNarrow.c_str());
         const auto hook = Hook{targetFnPtrAddress, detourFn, originalFn};
-        Hooks.insert({std::wstring(eventName), hook});
         if (originalFnPtr != nullptr) {
             *originalFnPtr = originalFn;
         }
