@@ -56,6 +56,11 @@ type = "plugin"
 sources = ["src/hud/**.cpp", "src/hud/**.c", "ext/minhook/src/**.c"]
 headers = ["src/hud/**.hpp", "src/hud/**.h", "ext/minhook/src/**.h", "src/hud/shaders/**.hlsl", "src/hud/shaders/**.hlsli", "include/**.h"]
 
+[target.Cameras]
+type = "plugin"
+sources = ["src/cameras/**.cpp", "src/cameras/**.c", "ext/minhook/src/**.c"]
+headers = ["src/cameras/**.hpp", "src/cameras/**.h", "ext/minhook/src/**.h", "include/**.h"]
+
 cmake-after="""
 add_custom_command(
     TARGET HeadAim POST_BUILD
@@ -68,6 +73,10 @@ add_custom_command(
 add_custom_command(
     TARGET HUD POST_BUILD
     COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/HUD.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/HUD.dll")
+
+add_custom_command(
+    TARGET Cameras POST_BUILD
+    COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/Cameras.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/Cameras.dll")
 
 set(_UEVR_PLUGIN_DIR "$ENV{APPDATA}/UnrealVRMod/MechWarrior-Win64-Shipping/plugins")
 

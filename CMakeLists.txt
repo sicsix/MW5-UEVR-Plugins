@@ -81,6 +81,7 @@ set(HeadAim_SOURCES
 	"include/mw5/EStereoscopicPass.h"
 	"include/mw5/EWidgetBlendMode.h"
 	"include/mw5/FDepthStencilBinding.h"
+	"include/mw5/FGTAOHorizonSearchAndIntegrateCSParameters.h"
 	"include/mw5/FIntPoint.h"
 	"include/mw5/FIntRect.h"
 	"include/mw5/FMotionBlurFilterParameters.h"
@@ -173,6 +174,7 @@ set(MechShakerBridge_SOURCES
 	"include/mw5/EStereoscopicPass.h"
 	"include/mw5/EWidgetBlendMode.h"
 	"include/mw5/FDepthStencilBinding.h"
+	"include/mw5/FGTAOHorizonSearchAndIntegrateCSParameters.h"
 	"include/mw5/FIntPoint.h"
 	"include/mw5/FIntRect.h"
 	"include/mw5/FMotionBlurFilterParameters.h"
@@ -274,6 +276,7 @@ set(HUD_SOURCES
 	"include/mw5/EStereoscopicPass.h"
 	"include/mw5/EWidgetBlendMode.h"
 	"include/mw5/FDepthStencilBinding.h"
+	"include/mw5/FGTAOHorizonSearchAndIntegrateCSParameters.h"
 	"include/mw5/FIntPoint.h"
 	"include/mw5/FIntRect.h"
 	"include/mw5/FMotionBlurFilterParameters.h"
@@ -339,7 +342,101 @@ target_include_directories(HUD PUBLIC
 	"ext/sig/include"
 )
 
-set(CMKR_TARGET HUD)
+# Target: Cameras
+set(Cameras_SOURCES
+	"src/cameras/Cameras.cpp"
+	"ext/minhook/src/buffer.c"
+	"ext/minhook/src/hde/hde32.c"
+	"ext/minhook/src/hde/hde64.c"
+	"ext/minhook/src/hook.c"
+	"ext/minhook/src/trampoline.c"
+	"src/cameras/Offsets.h"
+	"ext/minhook/src/buffer.h"
+	"ext/minhook/src/hde/hde32.h"
+	"ext/minhook/src/hde/hde64.h"
+	"ext/minhook/src/hde/pstdint.h"
+	"ext/minhook/src/hde/table32.h"
+	"ext/minhook/src/hde/table64.h"
+	"ext/minhook/src/trampoline.h"
+	"include/Log.h"
+	"include/MW5.h"
+	"include/PluginExtension.h"
+	"include/RE.h"
+	"include/Util.h"
+	"include/mw5/EMotionBlurFilterPass.h"
+	"include/mw5/EMotionBlurQuality.h"
+	"include/mw5/ERDGPassFlags.h"
+	"include/mw5/EScreenPassDrawFlags.h"
+	"include/mw5/EStereoscopicPass.h"
+	"include/mw5/EWidgetBlendMode.h"
+	"include/mw5/FDepthStencilBinding.h"
+	"include/mw5/FGTAOHorizonSearchAndIntegrateCSParameters.h"
+	"include/mw5/FIntPoint.h"
+	"include/mw5/FIntRect.h"
+	"include/mw5/FMotionBlurFilterParameters.h"
+	"include/mw5/FMotionBlurInputs.h"
+	"include/mw5/FMotionBlurParameters.h"
+	"include/mw5/FMotionBlurViewports.h"
+	"include/mw5/FPrimitiveComponentId.h"
+	"include/mw5/FRDGBuilder.h"
+	"include/mw5/FRDGEventName.h"
+	"include/mw5/FRDGParameterStruct.h"
+	"include/mw5/FRDGPass.h"
+	"include/mw5/FRDGTexture.h"
+	"include/mw5/FRHICommandList.h"
+	"include/mw5/FRHICommandListImmediate.h"
+	"include/mw5/FRHITexture2D.h"
+	"include/mw5/FRenderTargetBinding.h"
+	"include/mw5/FRenderTargetBindingSlots.h"
+	"include/mw5/FRendererModule.h"
+	"include/mw5/FResolveRect.h"
+	"include/mw5/FSceneTextureShaderParameters.h"
+	"include/mw5/FSceneView.h"
+	"include/mw5/FSceneViewFamily.h"
+	"include/mw5/FScreenPassPipelineState.h"
+	"include/mw5/FScreenPassRenderTarget.h"
+	"include/mw5/FScreenPassTexture.h"
+	"include/mw5/FScreenPassTextureViewport.h"
+	"include/mw5/FScreenPassTextureViewportParameters.h"
+	"include/mw5/FScreenPassTextureViewportTransform.h"
+	"include/mw5/FTextureResource.h"
+	"include/mw5/FTransform.h"
+	"include/mw5/FVector2D.h"
+	"include/mw5/FViewInfo.h"
+	"include/mw5/FViewMatrices.h"
+	"include/mw5/FWidget3DSceneProxy.h"
+	"include/mw5/PostProcessMotionBlur.h"
+	"include/mw5/SCanvas.h"
+	"include/mw5/SGameLayerManager.h"
+	"include/mw5/TArray.h"
+	"include/mw5/TShaderRefBase.h"
+	"include/mw5/UGameViewportClient.h"
+	"include/mw5/UPrimitiveComponent.h"
+	"include/mw5/USceneComponent.h"
+	"include/mw5/UTextureRenderTarget2D.h"
+	cmake.toml
+)
+
+add_library(Cameras SHARED)
+
+target_sources(Cameras PRIVATE ${Cameras_SOURCES})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${Cameras_SOURCES})
+
+target_compile_features(Cameras PUBLIC
+	cxx_std_23
+)
+
+target_include_directories(Cameras PUBLIC
+	"include/"
+	"ext/uevr/include/"
+	"ext/glm/"
+	"ext/openxr/include/"
+	"ext/minhook/include/"
+	"ext/spdlog/include/"
+	"ext/sig/include"
+)
+
+set(CMKR_TARGET Cameras)
 add_custom_command(
     TARGET HeadAim POST_BUILD
     COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/HeadAim.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/HeadAim.dll")
@@ -351,6 +448,10 @@ add_custom_command(
 add_custom_command(
     TARGET HUD POST_BUILD
     COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/HUD.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/HUD.dll")
+
+add_custom_command(
+    TARGET Cameras POST_BUILD
+    COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_SOURCE_DIR}/copy_with_retry.ps1" -sourcePath "${CMAKE_SOURCE_DIR}/build/Release/Cameras.dll" -destPath "%APPDATA%/UnrealVRMod/MechWarrior-Win64-Shipping/plugins/Cameras.dll")
 
 set(_UEVR_PLUGIN_DIR "$ENV{APPDATA}/UnrealVRMod/MechWarrior-Win64-Shipping/plugins")
 

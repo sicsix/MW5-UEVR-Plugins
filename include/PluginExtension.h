@@ -104,11 +104,14 @@ protected:
                 detourFn);
         targetFnPtrRef = detourFn;
 
-        LogInfo("Hooked %s", functionNameNarrow.c_str());
         const auto hook = Hook{targetFnPtrAddress, detourFn, originalFn};
+        Hooks.emplace(std::wstring(eventName), hook);
+
         if (originalFnPtr != nullptr) {
             *originalFnPtr = originalFn;
         }
+
+        LogInfo("Hooked %s", functionNameNarrow.c_str());
         return true;
     }
 

@@ -67,7 +67,7 @@ public:
     HeadAim() {
         Instance      = this;
         PluginName    = "HeadAim";
-        PluginVersion = "2.0.0";
+        PluginVersion = "2.0.1";
     }
 
     virtual void on_pre_engine_tick(API::UGameEngine* engine, const float delta) override {

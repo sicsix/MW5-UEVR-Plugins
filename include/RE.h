@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <MinHook.h>
 #include <Log.h>
+#include <psapi.h>
+#include <Sig.hpp>
 
 template <typename T>
 static T ResolveOffset(const uint64_t offset) {
@@ -9,6 +11,54 @@ static T ResolveOffset(const uint64_t offset) {
     auto       addr = (void*)(base + offset);
     Log::LogInfo("[ResolveOffset] Base: %p, Offset: 0x%llX -> Address: %p", (void*)base, offset, addr);
     return (T)addr;
+}
+
+struct TextRange {
+    const uint8_t* Begin{};
+    size_t         Size{};
+    HMODULE        Module{};
+};
+
+static std::optional<TextRange> GetExeTextRange() {
+    const HMODULE mod = GetModuleHandleW(nullptr);
+    if (!mod)
+        return std::nullopt;
+
+    const auto dos = (const IMAGE_DOS_HEADER*)mod;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+        return std::nullopt;
+
+    auto nt = (const IMAGE_NT_HEADERS*)((const uint8_t*)mod + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return std::nullopt;
+
+    const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
+        if (sec->Characteristics & IMAGE_SCN_CNT_CODE) {
+            const uint8_t* start = reinterpret_cast<const uint8_t*>(mod) + sec->VirtualAddress;
+            size_t         sz    = sec->Misc.VirtualSize;
+            return TextRange{start, sz, mod};
+        }
+    }
+
+    MODULEINFO mi{};
+    if (GetModuleInformation(GetCurrentProcess(), mod, &mi, sizeof(mi))) {
+        return TextRange{(const uint8_t*)mi.lpBaseOfDll, mi.SizeOfImage, mod};
+    }
+    Log::LogError("[Offsets] Failed to get .text section");
+    return std::nullopt;
+}
+
+static bool Find(const TextRange& text, const std::string& name, const char* pattern, uintptr_t& outRva) {
+    const void* hit = Sig::find(text.Begin, text.Size, pattern);
+
+    if (!hit) {
+        Log::LogError("[Offsets] Failed to find %s", name.c_str());
+        return false;
+    }
+
+    outRva = (uintptr_t)hit - (uintptr_t)text.Module;
+    Log::LogInfo("[Offsets] %s offset: 0x%p", name.c_str(), (const void*)outRva);
+    return true;
 }
 
 template <typename Fn>

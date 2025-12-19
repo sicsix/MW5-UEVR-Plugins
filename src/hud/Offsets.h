@@ -1,7 +1,5 @@
 #pragma once
-#include <psapi.h>
-#include <Sig.hpp>
-#include <Log.h>
+#include <RE.h>
 
 namespace Offsets {
     // Steam offsets from v1.12.376
@@ -26,54 +24,6 @@ namespace Offsets {
             "48 89 6C 24 10 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 60 49 8B 48";
     static auto SCanvas_OnPaint_Bytes =
             "4C 8B DC 41 56 48 81 EC F0 01 00 00 48 8B ?? ?? ?? ?? ?? 48 33 C4 48 89 84 24 B8 01 00 00 48 8B 84 24 30 02 00 00 4D 8B D0";
-
-
-    struct TextRange {
-        const uint8_t* Begin{};
-        size_t         Size{};
-        HMODULE        Module{};
-    };
-
-    static std::optional<TextRange> GetExeTextRange() {
-        const HMODULE mod = GetModuleHandleW(nullptr);
-        if (!mod)
-            return std::nullopt;
-
-        const auto dos = (const IMAGE_DOS_HEADER*)mod;
-        if (dos->e_magic != IMAGE_DOS_SIGNATURE)
-            return std::nullopt;
-
-        auto nt = (const IMAGE_NT_HEADERS*)((const uint8_t*)mod + dos->e_lfanew);
-        if (nt->Signature != IMAGE_NT_SIGNATURE) return std::nullopt;
-
-        const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
-        for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
-            if (sec->Characteristics & IMAGE_SCN_CNT_CODE) {
-                const uint8_t* start = reinterpret_cast<const uint8_t*>(mod) + sec->VirtualAddress;
-                size_t         sz    = sec->Misc.VirtualSize;
-                return TextRange{start, sz, mod};
-            }
-        }
-
-        MODULEINFO mi{};
-        if (GetModuleInformation(GetCurrentProcess(), mod, &mi, sizeof(mi))) {
-            return TextRange{(const uint8_t*)mi.lpBaseOfDll, mi.SizeOfImage, mod};
-        }
-        return std::nullopt;
-    }
-
-    static bool Find(const TextRange& text, const std::string& name, const char* pattern, uintptr_t& outRva) {
-        const void* hit = Sig::find(text.Begin, text.Size, pattern);
-
-        if (!hit) {
-            Log::LogError("[Offsets] Failed to find %s", name.c_str());
-            return false;
-        }
-
-        outRva = (uintptr_t)hit - (uintptr_t)text.Module;
-        Log::LogInfo("[Offsets] %s offset: 0x%p", name.c_str(), (const void*)outRva);
-        return true;
-    }
 
     static bool FindAll() {
         const auto text = GetExeTextRange();

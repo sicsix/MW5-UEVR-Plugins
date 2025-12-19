@@ -9,6 +9,7 @@
 #include "mw5/FDepthStencilBinding.h"
 #include "mw5/FIntPoint.h"
 #include "mw5/FIntRect.h"
+#include "mw5/FGTAOHorizonSearchAndIntegrateCSParameters.h"
 #include "mw5/FMotionBlurFilterParameters.h"
 #include "mw5/FMotionBlurInputs.h"
 #include "mw5/FMotionBlurParameters.h"
