@@ -20,9 +20,6 @@ class HeadAim final : public PluginExtension {
     float*        HeadAimYawOffset       = nullptr;
     vec3*         HeadCrosshairRotator   = nullptr; // Pitch, yaw, roll
     vec2*         TorsoRotation          = nullptr;
-    vec2*         ArmTwistBoundsHigh     = nullptr;
-    vec2*         ArmTwistBoundsLow      = nullptr;
-    vec2*         ArmTwistRate           = nullptr;
     API::UObject* VRHeadCrosshairRotator = nullptr;
     vec3*         MechRelativeRotation   = nullptr;
     vec2*         HeadTarget             = nullptr;
@@ -67,7 +64,7 @@ public:
     HeadAim() {
         Instance      = this;
         PluginName    = "HeadAim";
-        PluginVersion = "2.0.1";
+        PluginVersion = "2.1.0";
     }
 
     virtual void on_pre_engine_tick(API::UGameEngine* engine, const float delta) override {
@@ -80,6 +77,10 @@ public:
         if (InMech && *HeadAimMode == HeadAimMode::ArmsOnly) {
             // LastRelativeViewRotator is used by the targeting logic, setting this here doesn't seem to affect anything else but targeting
             *LastViewRotator = vec3(HeadTarget->y + TorsoRotation->y, HeadTarget->x + TorsoRotation->x, 0.0f);
+
+            // Force disable arm lock, it's being handled manually
+            *ArmlockEnabled = false;
+            *EnableArmLock  = true;
         }
     }
 
@@ -185,8 +186,8 @@ private:
         const quat quatRotOffset(offset.w, offset.x, offset.y, offset.z);
         const quat combinedRot = normalize(quatRotOffset * quatRot);
         vec3       euler       = degrees(EulerAnglesFromQuat(combinedRot));
-        euler.x += *HeadAimPitchOffset;
-        euler.y += *HeadAimYawOffset;
+        euler.x                += *HeadAimPitchOffset;
+        euler.y                += *HeadAimYawOffset;
 
         return euler;
     }
@@ -212,13 +213,11 @@ private:
         UpdateHeadAimTarget({hmdRotation.y, hmdRotation.x});
 
         vec2 targetRotation;
-        if (*ArmlockEnabled == *EnableArmLock) {
-            *HeadAimLocked = false;
-            targetRotation = *ArmsTarget;
-        } else {
+        if (*HeadAimLocked) {
             targetRotation = vec2(0, 0);
             *ArmsTarget    = vec2(0, 0);
-            *HeadAimLocked = true;
+        } else {
+            targetRotation = *ArmsTarget;
         }
 
         targetRotation /= *ZoomLevel;
@@ -227,9 +226,9 @@ private:
         const vec2 rotationRate = TorsoStats->Arm.TwistRate;
 
         const vec2 force = ARM_SPRING_CONSTANT * rotationDiff - ARM_DAMPING_CONSTANT * CurrentVelocity;
-        CurrentVelocity += force * Delta;
-        CurrentVelocity = clamp(CurrentVelocity, -rotationRate, rotationRate);
-        CurrentRotation += CurrentVelocity * Delta;
+        CurrentVelocity  += force * Delta;
+        CurrentVelocity  = clamp(CurrentVelocity, -rotationRate, rotationRate);
+        CurrentRotation  += CurrentVelocity * Delta;
 
         CurrentRotation = {
             clamp(CurrentRotation.x, TorsoStats->Arm.BoundsLow.x, TorsoStats->Arm.BoundsHigh.x),
@@ -239,7 +238,7 @@ private:
         *ArmTwist = CurrentRotation + *TorsoRotation;
 
         // Imperceptible alternating jitter added to torso rotation to stop game's C++ from locking the arm target to center once stable
-        TorsoRotation->x = TorsoRotation->x + RecenterHackOffset;
+        TorsoRotation->x   = TorsoRotation->x + RecenterHackOffset;
         RecenterHackOffset *= -1.0f;
     }
 
