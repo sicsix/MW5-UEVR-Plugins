@@ -28,15 +28,17 @@ class MechShakerBridge final : public PluginExtension {
     static constexpr size_t  BUFFER_SIZE_BYTES       = sizeof(EventData) * BUFFER_SIZE;
     static constexpr size_t  TOTAL_BUFFER_SIZE_BYTES = BUFFER_SIZE_BYTES + sizeof(ControlBlock);
 
-    bool FirstTick = true;
-
 public:
     inline static MechShakerBridge* Instance = nullptr;
 
     MechShakerBridge() {
-        Instance      = this;
-        PluginName    = "MechShakerBridge";
-        PluginVersion = "2.0.4";
+        Instance                  = this;
+        PluginExtension::Instance = this;
+        Name                      = "MechShakerBridge";
+        Version                   = "2.0.5";
+        VersionInt                = 205;
+        VersionCheckFnName        = L"OnFetchMechShakerBridgePluginData";
+        VersionPropertyName       = L"MechShakerBridgeVersion";
     }
 
     virtual ~MechShakerBridge() override {
@@ -59,23 +61,7 @@ public:
         Instance = nullptr;
     }
 
-    virtual void on_pre_engine_tick(API::UGameEngine* engine, float delta) override {
-        if (FirstTick)
-            OnFirstTick();
-    }
-
-    static void* OnTelemetry(API::UObject*, FFrame* frame, void* const) {
-        if (!Instance)
-            return nullptr;
-
-        Instance->WriteToSharedMemory(frame->GetParams<EventData>());
-        return nullptr;
-    }
-
-private:
-    void OnFirstTick() {
-        FirstTick = false;
-
+    virtual void OnInitialize() override {
         const auto playerController = API::get()->get_player_controller(0);
         if (!playerController) {
             LogError("Failed to get player controller");
@@ -100,6 +86,15 @@ private:
         Running = true;
     }
 
+    static void* OnTelemetry(API::UObject*, FFrame* frame, void* const) {
+        if (!Instance)
+            return nullptr;
+
+        Instance->WriteToSharedMemory(frame->GetParams<EventData>());
+        return nullptr;
+    }
+
+private:
     bool SetupMemoryMappedFile() {
         LogInfo("Creating memory mapped file...");
         MapFile = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, TOTAL_BUFFER_SIZE_BYTES, TEXT("MechShakerBridgeMemory"));

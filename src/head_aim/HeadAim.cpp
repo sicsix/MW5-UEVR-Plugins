@@ -31,9 +31,10 @@ class HeadAim final : public PluginExtension {
     void**        PendingLockTarget      = nullptr;
     void**        LockedOnTargetOverride = nullptr;
 
-    bool  InMech        = false;
-    float Delta         = 0;
-    vec2  RotationSpeed = vec2(0, 0);
+    bool  InMech         = false;
+    bool  HooksInstalled = false;
+    float Delta          = 0;
+    vec2  RotationSpeed  = vec2(0, 0);
 
 #define ARM_SPRING_CONSTANT 175.0f
 #define ARM_DAMPING_CONSTANT 25.0f
@@ -62,9 +63,13 @@ public:
     inline static HeadAim* Instance;
 
     HeadAim() {
-        Instance      = this;
-        PluginName    = "HeadAim";
-        PluginVersion = "2.1.0";
+        Instance                  = this;
+        PluginExtension::Instance = this;
+        Name                      = "HeadAim";
+        Version                   = "2.1.0";
+        VersionInt                = 210;
+        VersionCheckFnName        = L"OnFetchHeadAimPluginData";
+        VersionPropertyName       = L"HeadAimVersion";
     }
 
     virtual void on_pre_engine_tick(API::UGameEngine* engine, const float delta) override {
@@ -85,11 +90,14 @@ public:
     }
 
     static void* OnTorsoTwist(API::UObject*, FFrame*, void* const) {
-        Instance->UpdateHeadAim();
+        if (*Instance->HeadAimMode == HeadAimMode::Disabled)
+            return nullptr;
+        Instance->ProcessHeadAim();
         return nullptr;
     }
 
     static void* OnSetTarget(API::UObject*, FFrame* frame, void* const) {
+        Instance->LogInfo("OnSetTarget called");
         *Instance->CurrentTarget          = *frame->GetParams<void**>();
         *Instance->PreviousFriendlyTarget = nullptr;
         *Instance->PreviousHostileTarget  = nullptr;
@@ -100,14 +108,11 @@ public:
 
 private:
     bool OnNewPawn(API::UObject* activePawn) {
-        if (Pawn)
-            RemoveAllEventHooks(true);
-
         Pawn = activePawn;
         if (!activePawn)
             return false;
 
-        API::UObject* mechViewC,* mechMeshC,* cockpitC,* torsoTwistC,* mechCockpit,* userSettings,* vrHUDManager,* mechRootC,* targetTrackingC,* lockOnC;
+        API::UObject* mechViewC,* mechMeshC,* cockpitC,* torsoTwistC,* mechCockpit,* userSettings,* vrHUDManager,* mechRootC,* targetTrackingC,* lockOnC,* vrHeadAimHandler;
 
         const auto playerController = API::get()->get_player_controller(0);
 
@@ -155,11 +160,15 @@ private:
             return false;
         }
 
-        if (!AddEventHook(mechCockpit->get_class(), L"OnTorsoTwist", &OnTorsoTwist))
-            return false;
+        if (!HooksInstalled) {
+            if (!AddEventHook(mechCockpit->get_class(), L"OnTorsoTwist", &OnTorsoTwist))
+                return false;
 
-        if (!AddEventHook(mechCockpit->get_class(), L"OnSetTarget", &OnSetTarget))
-            return false;
+            if (!AddEventHook(mechCockpit->get_class(), L"OnSetTarget", &OnSetTarget))
+                return false;
+
+            HooksInstalled = true;
+        }
 
         LogInfo("Mech references found and hooks enabled");
         return true;
@@ -192,22 +201,7 @@ private:
         return euler;
     }
 
-    void UpdateHeadAim() {
-        switch (*HeadAimMode) {
-        case HeadAimMode::ArmsOnly:
-            ArmsOnly();
-            break;
-        case HeadAimMode::TorsoAndArms:
-            TorsoAndArms();
-            break;
-        case HeadAimMode::Disabled:
-            break;
-        }
-    }
-
-    float RecenterHackOffset = 0.000001f;
-
-    void ArmsOnly() {
+    void ProcessHeadAim() {
         const vec3 hmdRotation = GetHMDRotation();
 
         UpdateHeadAimTarget({hmdRotation.y, hmdRotation.x});
@@ -236,10 +230,6 @@ private:
         };
 
         *ArmTwist = CurrentRotation + *TorsoRotation;
-
-        // Imperceptible alternating jitter added to torso rotation to stop game's C++ from locking the arm target to center once stable
-        TorsoRotation->x   = TorsoRotation->x + RecenterHackOffset;
-        RecenterHackOffset *= -1.0f;
     }
 
     void UpdateHeadAimTarget(const vec2& targetHeadRotation) {
@@ -256,13 +246,6 @@ private:
             clamp(HeadTarget->x, TorsoStats->Arm.BoundsLow.x, TorsoStats->Arm.BoundsHigh.x),
             clamp(HeadTarget->y, TorsoStats->Arm.BoundsLow.y, TorsoStats->Arm.BoundsHigh.y)
         };
-    }
-
-    void TorsoAndArms() const {
-        const auto hmdRotation = GetHMDRotation();
-        TargetViewRotator->x   = hmdRotation.x + TorsoRotation->y;
-        TargetViewRotator->y   = hmdRotation.y + TorsoRotation->x;
-        TargetViewRotator->z   = 0;
     }
 };
 

@@ -6,8 +6,11 @@
 HUD::HUD() {
     Instance                  = this;
     PluginExtension::Instance = this;
-    PluginName                = "HUD";
-    PluginVersion             = "2.0.7";
+    Name                      = "HUD";
+    Version                   = "2.1.0";
+    VersionInt                = 210;
+    VersionCheckFnName        = L"OnFetchHUDPluginData";
+    VersionPropertyName       = L"HUDVersion";
     Renderer                  = new ::Renderer();
 }
 
@@ -87,10 +90,8 @@ void HUD::Reset() {
 }
 
 bool HUD::OnNewPawn(API::UObject* activePawn) {
-    if (Pawn) {
-        RemoveAllEventHooks(false);
+    if (Pawn)
         Reset();
-    }
 
     Pawn = activePawn;
     if (!activePawn)
@@ -178,8 +179,12 @@ void HUD::FWidget3DSceneProxy_GetDynamicMeshElements(FWidget3DSceneProxy*       
     if (!self || views.Count == 0)
         return;
 
-    if (self->BlendMode == EWidgetBlendMode::Opaque) {
-        // This is a screen, render as normal
+    // Using frameIndex to implement a simple ring buffer to avoid GPU/CPU sync issues
+    // Sometimes this can be called multiple times before the post process pass runs so the FrameNumber modulo keeps them in sync
+    const uint32_t frameIndex = viewFamily.FrameNumber % 3;
+
+    if (self->BlendMode == EWidgetBlendMode::Opaque || !Instance->InMech[frameIndex]) {
+        // Either we are out of mech or this is a screen, render as normal
         FWidget3DSceneProxy::GetDynamicMeshElements.OriginalFn(self, views, viewFamily, visibilityMap, collector);
         return;
     }
@@ -194,13 +199,9 @@ void HUD::FWidget3DSceneProxy_GetDynamicMeshElements(FWidget3DSceneProxy*       
         }
     }
 
-    // Using frameIndex to implement a simple ring buffer to avoid GPU/CPU sync issues
-    // Sometimes this can be called multiple times before the post process pass runs so the FrameNumber modulo keeps them in sync
-    const uint32_t frameIndex = viewFamily.FrameNumber % 3;
-
     const auto view         = views.Data[0];
-    const bool isMainPass   = views.Count == 2;
     const bool isZoomCamera = views.Count == 1 && view->bIsSceneCapture;
+    const bool isMainPass   = views.Count == 2 || view->StereoPass == eSSP_FULL && !isZoomCamera;
 
     if (widget) {
         // HUD widget, only render in the main pass
@@ -341,14 +342,6 @@ void HUD::FMotionBlurFilterPS_TRDGLambdaPass_ExecuteImpl(FMotionBlurFilterPS::TR
 }
 
 bool HUD::ValidateMech() {
-    if (!API::get()->param()->vr->is_runtime_ready()) {
-        if (Pawn != nullptr) {
-            RemoveAllEventHooks(false);
-            Reset();
-        }
-        return false;
-    }
-
     if (const auto activePawn = API::get()->get_local_pawn(0)) {
         if (activePawn != Pawn)
             return OnNewPawn(activePawn);
@@ -356,10 +349,8 @@ bool HUD::ValidateMech() {
     }
 
     // We have no active pawn, reset state if we had one before
-    if (Pawn != nullptr) {
-        RemoveAllEventHooks(true);
+    if (Pawn != nullptr)
         Reset();
-    }
 
     return false;
 }

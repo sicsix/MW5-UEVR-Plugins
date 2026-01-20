@@ -439,6 +439,8 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
             if (!widget.RequestDraw[frameIndex][eye] || !widget.SRV)
                 continue;
 
+            // Log::LogInfo("Rendering HUD widget %d for eye %d", i, eye);
+
             ctx->PSSetShaderResources(0, 1, widget.SRV.GetAddressOf());
 
             if (D3D11_MAPPED_SUBRESOURCE m; SUCCEEDED(ctx->Map(QuadConstantsCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
@@ -455,8 +457,10 @@ void Renderer::RenderHUD(HUDWidgetRenderData                         widgets[4],
             widget.RequestDraw[frameIndex][eye] = false;
         }
 
-        // Clear markers after both eyes have rendered
-        if (eye == 1)
+        // Log::LogInfo("Eye %d HUD rendered with %zu markers", eye, markers.size());
+
+        // Clear markers after both eyes have rendered or if rendering a non-stereo frame
+        if (eye == 1 || pass == eSSP_FULL)
             markers.clear();
     }
 

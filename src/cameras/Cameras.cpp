@@ -11,9 +11,13 @@ public:
     inline static Cameras* Instance = nullptr;
 
     Cameras() {
-        Instance      = this;
-        PluginName    = "Cameras";
-        PluginVersion = "2.0.3";
+        Instance                  = this;
+        PluginExtension::Instance = this;
+        Name                      = "Cameras";
+        Version                   = "2.0.4";
+        VersionInt                = 204;
+        VersionCheckFnName        = L"OnFetchCamerasPluginData";
+        VersionPropertyName       = L"CamerasVersion";
     }
 
     virtual ~Cameras() override {
@@ -31,9 +35,15 @@ public:
     inline static auto                CachedCameraPosition = float3(-1.0f, -1.0f, -1.0f);
     inline static std::optional<bool> CachedCursorEnabled  = std::nullopt;
     inline static bool                ShowCursor           = true;
+    inline static bool                VREnabled            = false;
     inline static std::optional<bool> CachedDecoupledPitch = std::nullopt;
     inline static bool                CachedIsStarmap      = false;
     inline static auto                ActiveInputType      = EKeyInputType::KeyboardMouse;
+
+    struct SetMouseEnabledData {
+        bool Enabled;
+        bool VREnabled;
+    };
 
     using FnA = EKeyInputType(__fastcall *)(void* self, EKeyInputType inputType);
     static inline FunctionHook<FnA> SetCurrentInputTypeHook{"SetCurrentInputType"};
@@ -55,8 +65,6 @@ public:
             LogError("Failed to find VR Global class");
             return;
         }
-
-        LogInfo("Found VR Global class");
 
         if (!AddEventHook(vrGlobal, L"SetCameraOffset", &OnSetCameraOffset))
             return;
@@ -171,7 +179,10 @@ public:
         return nullptr;
     }
 
-    static EKeyInputType MWInputListener_SetCurrentInputType(void* self, EKeyInputType) {
+    static EKeyInputType MWInputListener_SetCurrentInputType(void* self, EKeyInputType inputType) {
+        if (!VREnabled)
+            return SetCurrentInputTypeHook.OriginalFn(self, inputType);
+
         static POINT previousMousePosition = {};
 
         static std::chrono::steady_clock::time_point lastMouseMove = std::chrono::steady_clock::now();
@@ -202,18 +213,19 @@ public:
         if (!Instance)
             return nullptr;
 
-        const bool* mouseEnabled = frame->GetParams<bool>();
+        const SetMouseEnabledData* mouseEnabled = frame->GetParams<SetMouseEnabledData>();
         if (!mouseEnabled)
             return nullptr;
 
-        ShowCursor = *mouseEnabled;
+        ShowCursor = mouseEnabled->Enabled;
+        VREnabled  = mouseEnabled->VREnabled;
 
         UpdateCursorState();
         return nullptr;
     }
 
     static void UpdateCursorState() {
-        const bool wantCursor = (ActiveInputType == EKeyInputType::KeyboardMouse) && ShowCursor;
+        const bool wantCursor = (ActiveInputType == EKeyInputType::KeyboardMouse) && ShowCursor && VREnabled;
 
         if (CachedCursorEnabled && *CachedCursorEnabled == wantCursor)
             return;

@@ -44,25 +44,26 @@ public:
     }
 
     virtual void on_initialize() override {
-        LogInfo("%s %s initialized", PluginName, PluginVersion);
+        LogInfo("%s %s initialized", Name, Version);
+        SetupVersionCheckHook();
         OnInitialize();
     }
 
     template <typename... Args>
     void LogError(const char* format, Args... args) {
-        const std::string modifiedFormat = "[" + std::string(PluginName) + "] " + format;
+        const std::string modifiedFormat = "[" + std::string(Name) + "] " + format;
         API::get()->log_error(modifiedFormat.c_str(), args...);
     }
 
     template <typename... Args>
     void LogWarn(const char* format, Args... args) {
-        const std::string modifiedFormat = "[" + std::string(PluginName) + "] " + format;
+        const std::string modifiedFormat = "[" + std::string(Name) + "] " + format;
         API::get()->log_warn(modifiedFormat.c_str(), args...);
     }
 
     template <typename... Args>
     void LogInfo(const char* format, Args... args) {
-        const std::string modifiedFormat = "[" + std::string(PluginName) + "] " + format;
+        const std::string modifiedFormat = "[" + std::string(Name) + "] " + format;
         API::get()->log_info(modifiedFormat.c_str(), args...);
     }
 
@@ -75,9 +76,50 @@ private:
 
     std::map<std::wstring, Hook> Hooks;
 
+    void SetupVersionCheckHook() {
+        const auto vrGlobal = API::get()->find_uobject<API::UClass>(L"BlueprintGeneratedClass /Game/MechWarriorVR/VR_Global.VR_Global_C");
+        if (!vrGlobal) {
+            LogError("Failed to find VR Global class");
+            return;
+        }
+
+        if (!AddEventHook(vrGlobal, VersionCheckFnName, &OnFetchPluginData)) {
+            LogError("Failed to hook into %s", WideToNarrow(VersionCheckFnName).c_str());
+            return;
+        }
+    }
+
+    static void* OnFetchPluginData(API::UObject* vrGlobal, FFrame*, void* const) {
+        if (!Instance)
+            return nullptr;
+
+        if (!vrGlobal) {
+            Instance->LogError("OnFetchPluginData: vrGlobal null");
+            return nullptr;
+        }
+
+        bool*    uevrLoaded = nullptr;
+        int32_t* version    = nullptr;
+
+        if (!Instance->TryGetPropertyStruct(vrGlobal, L"VersionDataSet", uevrLoaded) ||
+            !Instance->TryGetPropertyStruct(vrGlobal, Instance->VersionPropertyName, version)) {
+            return nullptr;
+        }
+
+        if (uevrLoaded)
+            *uevrLoaded = true;
+        if (version)
+            *version = Instance->VersionInt;
+
+        return nullptr;
+    }
+
 protected:
-    const char* PluginName    = "NOT SET";
-    const char* PluginVersion = "0.0.0";
+    const char*    Name                = "NOT SET";
+    const char*    Version             = "0.0.0";
+    int32_t        VersionInt          = 0;
+    const wchar_t* VersionCheckFnName  = L"NOT SET";
+    const wchar_t* VersionPropertyName = L"NOT SET";
 
     virtual void OnInitialize() {}
 
