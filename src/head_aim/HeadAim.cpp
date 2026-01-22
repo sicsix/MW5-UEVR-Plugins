@@ -11,16 +11,12 @@ class HeadAim final : public PluginExtension {
     API::UObject* Pawn                   = nullptr;
     HeadAimMode*  HeadAimMode            = nullptr;
     vec2*         ArmTwist               = nullptr;
-    vec3*         TargetViewRotator      = nullptr; // Pitch, yaw, roll
     vec3*         LastViewRotator        = nullptr;
     bool*         ArmlockEnabled         = nullptr;
     bool*         EnableArmLock          = nullptr;
     float*        ZoomLevel              = nullptr;
     float*        HeadAimPitchOffset     = nullptr;
-    float*        HeadAimYawOffset       = nullptr;
-    vec3*         HeadCrosshairRotator   = nullptr; // Pitch, yaw, roll
     vec2*         TorsoRotation          = nullptr;
-    API::UObject* VRHeadCrosshairRotator = nullptr;
     vec3*         MechRelativeRotation   = nullptr;
     vec2*         HeadTarget             = nullptr;
     vec2*         ArmsTarget             = nullptr;
@@ -30,18 +26,21 @@ class HeadAim final : public PluginExtension {
     void**        PreviousHostileTarget  = nullptr;
     void**        PendingLockTarget      = nullptr;
     void**        LockedOnTargetOverride = nullptr;
+    API::UObject* LockOnComponent        = nullptr;
 
-    bool  InMech         = false;
-    bool  HooksInstalled = false;
-    float Delta          = 0;
-    vec2  RotationSpeed  = vec2(0, 0);
+    bool  InMech                = false;
+    bool  HooksInstalled        = false;
+    float Delta                 = 0;
+    vec2  RotationSpeed         = vec2(0, 0);
+    vec2  PreviousTorsoRotation = vec2(0, 0);
 
 #define ARM_SPRING_CONSTANT 175.0f
 #define ARM_DAMPING_CONSTANT 25.0f
 
-    vec2 CurrentVelocity{};
-    vec2 CurrentRotation{};
-    vec2 SmoothedHeadRotation{};
+    vec2 CurrentArmVelocity{};
+    vec2 CurrentArmRotation{};
+    quat SmoothedHmdQuat  = quat(1, 0, 0, 0);
+    bool SmoothedQuatInit = false;
 
     struct TwistBounds {
         // Yaw, Pitch
@@ -66,8 +65,8 @@ public:
         Instance                  = this;
         PluginExtension::Instance = this;
         Name                      = "HeadAim";
-        Version                   = "2.1.0";
-        VersionInt                = 210;
+        Version                   = "2.2.0";
+        VersionInt                = 220;
         VersionCheckFnName        = L"OnFetchHeadAimPluginData";
         VersionPropertyName       = L"HeadAimVersion";
     }
@@ -86,13 +85,33 @@ public:
             // Force disable arm lock, it's being handled manually
             *ArmlockEnabled = false;
             *EnableArmLock  = true;
+
+            if (LockOnComponent) {
+                bool bLookingAtTarget = true;
+                LockOnComponent->call_function(L"OnLookingAtTargetChanged", &bLookingAtTarget);
+                // TODO THIS WORKS! get locked on target, get location, determine if within appropriate angle, set this, done.
+                // TODO Might need to move to HUD??? on_pre_engine_tick is only going to get called if fully injected and won't work for flatscreen
+            }
         }
     }
 
-    static void* OnTorsoTwist(API::UObject*, FFrame*, void* const) {
+    struct RotationDegrees {
+        float Roll;
+        float Pitch;
+        float Yaw;
+    };
+
+    struct Rotations {
+        RotationDegrees Cockpit;
+        RotationDegrees Torso;
+    };
+
+    static void* OnCalculateHeadAim(API::UObject*, FFrame* frame, void* const) {
         if (*Instance->HeadAimMode == HeadAimMode::Disabled)
             return nullptr;
+        const auto rotations = *frame->GetParams<Rotations>();
         Instance->ProcessHeadAim();
+        Instance->ProcessArmTwist(rotations.Cockpit, rotations.Torso);
         return nullptr;
     }
 
@@ -112,7 +131,7 @@ private:
         if (!activePawn)
             return false;
 
-        API::UObject* mechViewC,* mechMeshC,* cockpitC,* torsoTwistC,* mechCockpit,* userSettings,* vrHUDManager,* mechRootC,* targetTrackingC,* lockOnC,* vrHeadAimHandler;
+        API::UObject* mechViewC,* mechMeshC,* cockpitC,* torsoTwistC,* mechCockpit,* userSettings,* vrHUDManager,* mechRootC,* targetTrackingC;
 
         const auto playerController = API::get()->get_player_controller(0);
 
@@ -129,20 +148,16 @@ private:
                   TryGetProperty(Pawn, L"TorsoTwistComponent", torsoTwistC) &&
                   TryGetPropertyStruct(torsoTwistC, L"bArmlockEnabled", ArmlockEnabled) &&
                   TryGetPropertyStruct(torsoTwistC, L"ArmTwist", ArmTwist) &&
-                  TryGetPropertyStruct(mechViewC, L"TargetRelativeViewRotator", TargetViewRotator) &&
                   TryGetPropertyStruct(mechViewC, L"LastRelativeViewRotator", LastViewRotator) &&
                   TryGetPropertyStruct(torsoTwistC, L"TorsoStats", TorsoStats) &&
                   TryGetProperty(playerController, L"MWGameUserSettings", userSettings) &&
                   TryGetPropertyStruct(userSettings, L"EnableArmLock", EnableArmLock) &&
                   TryGetProperty(mechCockpit, L"VR_HUDManager", vrHUDManager) &&
                   TryGetPropertyStruct(vrHUDManager, L"ZoomLevel", ZoomLevel) &&
-                  TryGetProperty(mechCockpit, L"VR_HeadCrosshairRotator", VRHeadCrosshairRotator) &&
-                  TryGetPropertyStruct(VRHeadCrosshairRotator, L"RelativeRotation", HeadCrosshairRotator) &&
                   TryGetPropertyStruct(torsoTwistC, L"TorsoTwist", TorsoRotation) &&
                   TryGetProperty(Pawn, L"RootComponent", mechRootC) &&
                   TryGetPropertyStruct(mechRootC, L"RelativeRotation", MechRelativeRotation) &&
                   TryGetPropertyStruct(mechCockpit, L"HeadAimPitchOffset", HeadAimPitchOffset) &&
-                  TryGetPropertyStruct(mechCockpit, L"HeadAimYawOffset", HeadAimYawOffset) &&
                   TryGetPropertyStruct(mechCockpit, L"HeadTarget", HeadTarget) &&
                   TryGetPropertyStruct(mechCockpit, L"ArmsTarget", ArmsTarget) &&
                   TryGetPropertyStruct(mechCockpit, L"HeadAimLocked", HeadAimLocked) &&
@@ -150,9 +165,9 @@ private:
                   TryGetPropertyStruct(targetTrackingC, L"CurrentTarget", CurrentTarget) &&
                   TryGetPropertyStruct(targetTrackingC, L"PreviousFriendlyTarget", PreviousFriendlyTarget) &&
                   TryGetPropertyStruct(targetTrackingC, L"PreviousHostileTarget", PreviousHostileTarget) &&
-                  TryGetProperty(Pawn, L"LockOnComponent", lockOnC) &&
-                  TryGetPropertyStruct(lockOnC, L"PendingLockTarget", PendingLockTarget) &&
-                  TryGetPropertyStruct(lockOnC, L"LockedOnTargetOverride", LockedOnTargetOverride);
+                  TryGetProperty(Pawn, L"LockOnComponent", LockOnComponent) &&
+                  TryGetPropertyStruct(LockOnComponent, L"PendingLockTarget", PendingLockTarget) &&
+                  TryGetPropertyStruct(LockOnComponent, L"LockedOnTargetOverride", LockedOnTargetOverride);
 
         if (!success) {
             LogInfo("Failed to get cockpit references, retrying next frame...");
@@ -161,7 +176,7 @@ private:
         }
 
         if (!HooksInstalled) {
-            if (!AddEventHook(mechCockpit->get_class(), L"OnTorsoTwist", &OnTorsoTwist))
+            if (!AddEventHook(mechCockpit->get_class(), L"OnCalculateHeadAim", &OnCalculateHeadAim))
                 return false;
 
             if (!AddEventHook(mechCockpit->get_class(), L"OnSetTarget", &OnSetTarget))
@@ -183,7 +198,7 @@ private:
         return {pitch, -yaw, -roll};
     }
 
-    vec3 GetHMDRotation() const {
+    quat GetHMDRotation() const {
         UEVR_Vector3f    pose;
         UEVR_Quaternionf rot, offset;
         const auto       hmdIndex = API::get()->param()->vr->get_hmd_index();
@@ -191,61 +206,127 @@ private:
         API::get()->param()->vr->get_pose(hmdIndex, &pose, &rot);
         API::get()->param()->vr->get_rotation_offset(&offset);
 
-        const quat quatRot(rot.w, rot.x, rot.y, rot.z);
-        const quat quatRotOffset(offset.w, offset.x, offset.y, offset.z);
-        const quat combinedRot = normalize(quatRotOffset * quatRot);
-        vec3       euler       = degrees(EulerAnglesFromQuat(combinedRot));
-        euler.x                += *HeadAimPitchOffset;
-        euler.y                += *HeadAimYawOffset;
+        const quat qHmd(rot.w, rot.z, rot.x, rot.y);
+        const quat qRotOffset(offset.w, offset.z, offset.x, offset.y);
+        const quat combined       = normalize(qRotOffset * qHmd);
+        const quat qHeadAimOffset = angleAxis(radians(*HeadAimPitchOffset), vec3(0, 1, 0));
 
-        return euler;
+        return normalize(combined * qHeadAimOffset);
+    }
+
+    static float QuatAngleRad(const quat& a, const quat& b) {
+        const float d = clamp(abs(dot(normalize(a), normalize(b))), 0.0f, 1.0f);
+        return 2.0f * acos(d);
+    }
+
+    static quat MakeYawPitchRollQuat(const float yawRad, const float pitchRad, const float rollRad) {
+        const quat qYaw   = angleAxis(yawRad, vec3(0, 0, 1));
+        const quat qPitch = angleAxis(pitchRad, vec3(0, 1, 0));
+        const quat qRoll  = angleAxis(rollRad, vec3(1, 0, 0));
+        return normalize(qYaw * qPitch * qRoll);
     }
 
     void ProcessHeadAim() {
-        const vec3 hmdRotation = GetHMDRotation();
+        constexpr auto  fwd         = vec3(1, 0, 0);
+        constexpr float deadbandRad = radians(0.15f); // 0.10–0.25
+        constexpr float maxAngleRad = radians(3.0f);  // 3–5
+        constexpr float lambdaSlow  = 20.0f;          // 14–20
+        constexpr float lambdaFast  = 50.0f;          // 35–50
 
-        UpdateHeadAimTarget({hmdRotation.y, hmdRotation.x});
+        const quat q = GetHMDRotation();
 
-        vec2 targetRotation;
-        if (*HeadAimLocked) {
-            targetRotation = vec2(0, 0);
-            *ArmsTarget    = vec2(0, 0);
-        } else {
-            targetRotation = *ArmsTarget;
+        if (!SmoothedQuatInit) {
+            SmoothedHmdQuat  = q;
+            SmoothedQuatInit = true;
         }
 
-        targetRotation /= *ZoomLevel;
+        const float ang      = QuatAngleRad(SmoothedHmdQuat, q);
+        const float angEff   = max(0.0f, ang - deadbandRad);
+        const float adaptive = clamp(angEff / maxAngleRad, 0.0f, 1.0f);
+        const float lambda   = mix(lambdaSlow, lambdaFast, adaptive);
+        const float t        = 1.0f - expf(-lambda * Delta);
+        SmoothedHmdQuat      = normalize(slerp(SmoothedHmdQuat, q, t));
 
-        const vec2 rotationDiff = targetRotation - CurrentRotation;
-        const vec2 rotationRate = TorsoStats->Arm.TwistRate;
+        const vec3 dir = normalize(SmoothedHmdQuat * fwd);
 
-        const vec2 force = ARM_SPRING_CONSTANT * rotationDiff - ARM_DAMPING_CONSTANT * CurrentVelocity;
-        CurrentVelocity  += force * Delta;
-        CurrentVelocity  = clamp(CurrentVelocity, -rotationRate, rotationRate);
-        CurrentRotation  += CurrentVelocity * Delta;
+        const float yawRad   = atan2(dir.y, dir.x);
+        const float pitchRad = atan2(dir.z, sqrt(dir.x * dir.x + dir.y * dir.y));
 
-        CurrentRotation = {
-            clamp(CurrentRotation.x, TorsoStats->Arm.BoundsLow.x, TorsoStats->Arm.BoundsHigh.x),
-            clamp(CurrentRotation.y, TorsoStats->Arm.BoundsLow.y, TorsoStats->Arm.BoundsHigh.y)
-        };
+        const float yawDeg   = -degrees(yawRad);
+        const float pitchDeg = -degrees(pitchRad);
 
-        *ArmTwist = CurrentRotation + *TorsoRotation;
+        float armsTargetYawDeg   = *HeadAimLocked ? 0 : yawDeg;
+        float armsTargetPitchDeg = *HeadAimLocked ? 0 : pitchDeg;
+
+        if (!TorsoStats->Arm.IsYawUnbound)
+            armsTargetYawDeg = clamp(armsTargetYawDeg, TorsoStats->Arm.BoundsLow.x, TorsoStats->Arm.BoundsHigh.x);
+        if (!TorsoStats->Arm.IsPitchUnbound)
+            armsTargetPitchDeg = clamp(armsTargetPitchDeg, TorsoStats->Arm.BoundsLow.y, TorsoStats->Arm.BoundsHigh.y);
+
+        *ArmsTarget = vec2(armsTargetYawDeg, armsTargetPitchDeg);
+        *HeadTarget = vec2(yawDeg, pitchDeg);
     }
 
-    void UpdateHeadAimTarget(const vec2& targetHeadRotation) {
-        constexpr float maxDistance = 2.0f;
-        constexpr float minInterp   = 0.05f;
-        constexpr float maxInterp   = 1.0f;
+    static float WrapDeg180(float a) {
+        a = fmodf(a + 180.0f, 360.0f);
+        if (a < 0.0f) a += 360.0f;
+        return a - 180.0f;
+    }
 
-        const float distance        = length(targetHeadRotation - SmoothedHeadRotation);
-        const float smoothingFactor = minInterp + min((distance / maxDistance), 1.0f) * (maxInterp - minInterp);
+    static float DeltaAngleDeg(float current, float target) {
+        return WrapDeg180(target - current);
+    }
 
-        SmoothedHeadRotation = lerp(SmoothedHeadRotation, targetHeadRotation, smoothingFactor);
-        *HeadTarget          = SmoothedHeadRotation;
-        *ArmsTarget          = {
-            clamp(HeadTarget->x, TorsoStats->Arm.BoundsLow.x, TorsoStats->Arm.BoundsHigh.x),
-            clamp(HeadTarget->y, TorsoStats->Arm.BoundsLow.y, TorsoStats->Arm.BoundsHigh.y)
-        };
+    static vec2 DeltaAngleDeg2(const vec2& current, const vec2& target) {
+        return vec2(
+            DeltaAngleDeg(current.x, target.x),
+            DeltaAngleDeg(current.y, target.y)
+        );
+    }
+
+    void ProcessArmTwist(RotationDegrees cockpitRelativeRot, RotationDegrees torsoAimRotation) {
+        vec2 targetArmRotation = *ArmsTarget;
+        targetArmRotation      /= max(0.001f, *ZoomLevel);
+
+        static bool springInit = false;
+        if (!springInit) {
+            CurrentArmRotation = targetArmRotation;
+            CurrentArmVelocity = vec2(0.0f);
+            springInit         = true;
+        }
+
+        const vec2 rotationDiff = DeltaAngleDeg2(CurrentArmRotation, targetArmRotation);
+        const vec2 rotationRate = TorsoStats->Arm.TwistRate;
+        const vec2 force        = ARM_SPRING_CONSTANT * rotationDiff - ARM_DAMPING_CONSTANT * CurrentArmVelocity;
+        CurrentArmVelocity      += force * Delta;
+        CurrentArmVelocity      = clamp(CurrentArmVelocity, -rotationRate, rotationRate);
+        CurrentArmRotation      += CurrentArmVelocity * Delta;
+
+        constexpr auto fwd     = vec3(1, 0, 0);
+        const quat     newQuat = MakeYawPitchRollQuat(-radians(CurrentArmRotation.x), radians(CurrentArmRotation.y), 0.0f);
+
+        vec3 headDirTorso = normalize(newQuat * fwd);
+
+        const auto torsoRotationChange = *TorsoRotation - PreviousTorsoRotation;
+        float      relativeYawOffset   = *HeadAimLocked ? torsoAimRotation.Yaw : -torsoRotationChange.x;
+        float      relativePitchOffset = *HeadAimLocked ? -torsoAimRotation.Pitch : torsoRotationChange.y;
+
+        const float relativeYawRad   = radians(-cockpitRelativeRot.Yaw + relativeYawOffset);
+        const float relativePitchRad = radians(cockpitRelativeRot.Pitch + relativePitchOffset);
+        const float relativeRollRad  = radians(-cockpitRelativeRot.Roll);
+
+        const quat qRelative = MakeYawPitchRollQuat(relativeYawRad, relativePitchRad, relativeRollRad);
+        const vec3 aimDir    = normalize(qRelative * headDirTorso);
+
+        const float yawRad   = atan2(aimDir.y, aimDir.x);
+        const float pitchRad = atan2(aimDir.z, sqrt(aimDir.x * aimDir.x + aimDir.y * aimDir.y));
+
+        float yawDeg   = -degrees(yawRad);
+        float pitchDeg = -degrees(pitchRad);
+
+        *ArmTwist = vec2(yawDeg, pitchDeg);
+
+        PreviousTorsoRotation = *TorsoRotation;
     }
 };
 
