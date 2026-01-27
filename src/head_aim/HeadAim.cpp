@@ -34,7 +34,7 @@ class HeadAim final : public PluginExtension {
     vec2  RotationSpeed         = vec2(0, 0);
     vec2  PreviousTorsoRotation = vec2(0, 0);
 
-#define ARM_SPRING_CONSTANT 175.0f
+#define ARM_SPRING_CONSTANT 200.0f
 #define ARM_DAMPING_CONSTANT 25.0f
 
     vec2 CurrentArmVelocity{};
@@ -65,8 +65,8 @@ public:
         Instance                  = this;
         PluginExtension::Instance = this;
         Name                      = "HeadAim";
-        Version                   = "2.2.0";
-        VersionInt                = 220;
+        Version                   = "2.2.1";
+        VersionInt                = 221;
         VersionCheckFnName        = L"OnFetchHeadAimPluginData";
         VersionPropertyName       = L"HeadAimVersion";
     }
@@ -85,14 +85,17 @@ public:
             // Force disable arm lock, it's being handled manually
             *ArmlockEnabled = false;
             *EnableArmLock  = true;
-
-            if (LockOnComponent) {
-                bool bLookingAtTarget = true;
-                LockOnComponent->call_function(L"OnLookingAtTargetChanged", &bLookingAtTarget);
-                // TODO THIS WORKS! get locked on target, get location, determine if within appropriate angle, set this, done.
-                // TODO Might need to move to HUD??? on_pre_engine_tick is only going to get called if fully injected and won't work for flatscreen
-            }
         }
+    }
+
+    virtual void OnInitialize() override {
+        const auto targetLockHandler = API::get()->find_uobject<API::UClass>(L"BlueprintGeneratedClass /Game/MechWarriorVR/VR_TargetLockHandler.VR_TargetLockHandler_C");
+        if (!targetLockHandler) {
+            LogError("Failed to find VR Target Lock Handler class");
+            return;
+        }
+
+        AddEventHook(targetLockHandler, L"OnForceLookingAtTarget", &OnForceLookingAtTarget);
     }
 
     struct RotationDegrees {
@@ -101,7 +104,7 @@ public:
         float Yaw;
     };
 
-    struct Rotations {
+    struct OnCalculateHeadAimParams {
         RotationDegrees Cockpit;
         RotationDegrees Torso;
     };
@@ -109,19 +112,30 @@ public:
     static void* OnCalculateHeadAim(API::UObject*, FFrame* frame, void* const) {
         if (*Instance->HeadAimMode == HeadAimMode::Disabled)
             return nullptr;
-        const auto rotations = *frame->GetParams<Rotations>();
+        const auto rotations = *frame->GetParams<OnCalculateHeadAimParams>();
         Instance->ProcessHeadAim();
         Instance->ProcessArmTwist(rotations.Cockpit, rotations.Torso);
         return nullptr;
     }
 
     static void* OnSetTarget(API::UObject*, FFrame* frame, void* const) {
-        Instance->LogInfo("OnSetTarget called");
         *Instance->CurrentTarget          = *frame->GetParams<void**>();
         *Instance->PreviousFriendlyTarget = nullptr;
         *Instance->PreviousHostileTarget  = nullptr;
         *Instance->PendingLockTarget      = nullptr;
         *Instance->LockedOnTargetOverride = nullptr;
+        return nullptr;
+    }
+
+    struct OnForceLookingAtTargetParams {
+        API::UObject* LockOnComponent;
+        bool          LookingAtTarget;
+    };
+
+    static void* OnForceLookingAtTarget(API::UObject*, FFrame* frame, void* const) {
+        const auto params          = *frame->GetParams<OnForceLookingAtTargetParams>();
+        bool       lookingAtTarget = params.LookingAtTarget;
+        params.LockOnComponent->call_function(L"OnLookingAtTargetChanged", &lookingAtTarget);
         return nullptr;
     }
 
@@ -285,8 +299,13 @@ private:
     }
 
     void ProcessArmTwist(RotationDegrees cockpitRelativeRot, RotationDegrees torsoAimRotation) {
-        vec2 targetArmRotation = *ArmsTarget;
-        targetArmRotation      /= max(0.001f, *ZoomLevel);
+        const float zoom        = max(0.001f, *ZoomLevel);
+        const float invZoom     = 1.0f / zoom;
+        const float oneMinusInv = 1.0f - invZoom;
+
+        // Calculate the target in cockpit relative coordinates so that it's stable relative to the cockpit regardless of torso twist or pitch,
+        // otherwise the target will have to chase the torso as it rotates
+        vec2 targetArmRotation = *ArmsTarget * invZoom;
 
         static bool springInit = false;
         if (!springInit) {
@@ -295,37 +314,62 @@ private:
             springInit         = true;
         }
 
-        const vec2 rotationDiff = DeltaAngleDeg2(CurrentArmRotation, targetArmRotation);
-        const vec2 rotationRate = TorsoStats->Arm.TwistRate;
-        const vec2 force        = ARM_SPRING_CONSTANT * rotationDiff - ARM_DAMPING_CONSTANT * CurrentArmVelocity;
-        CurrentArmVelocity      += force * Delta;
-        CurrentArmVelocity      = clamp(CurrentArmVelocity, -rotationRate, rotationRate);
-        CurrentArmRotation      += CurrentArmVelocity * Delta;
+        // Calculate velocity and new rotation
+        const vec2 diff = DeltaAngleDeg2(CurrentArmRotation, targetArmRotation);
+        vec2 accel = ARM_SPRING_CONSTANT * diff - ARM_DAMPING_CONSTANT * CurrentArmVelocity;
+        CurrentArmVelocity += accel * Delta;
+        const float maxSpeed = TorsoStats->Arm.TwistRate.x; // Just assuming x==y
+        float v2 = dot(CurrentArmVelocity, CurrentArmVelocity);
+        if (v2 > maxSpeed * maxSpeed) {
+            CurrentArmVelocity *= maxSpeed / sqrt(v2);
+        }
+        CurrentArmRotation += CurrentArmVelocity * Delta;
 
-        constexpr auto fwd     = vec3(1, 0, 0);
-        const quat     newQuat = MakeYawPitchRollQuat(-radians(CurrentArmRotation.x), radians(CurrentArmRotation.y), 0.0f);
+        // Calculate aim direction
+        constexpr vec3 fwd(1.0f, 0.0f, 0.0f);
+        const quat qArm = MakeYawPitchRollQuat(
+            -radians(CurrentArmRotation.x),
+            radians(CurrentArmRotation.y),
+            0.0f
+        );
+        const vec3 localArmTwistDir = qArm * fwd;
 
-        vec3 headDirTorso = normalize(newQuat * fwd);
+        const vec2 torsoDelta = *TorsoRotation - PreviousTorsoRotation;
 
-        const auto torsoRotationChange = *TorsoRotation - PreviousTorsoRotation;
-        float      relativeYawOffset   = *HeadAimLocked ? torsoAimRotation.Yaw : -torsoRotationChange.x;
-        float      relativePitchOffset = *HeadAimLocked ? -torsoAimRotation.Pitch : torsoRotationChange.y;
+        float yawOffset;
+        float pitchOffset;
 
-        const float relativeYawRad   = radians(-cockpitRelativeRot.Yaw + relativeYawOffset);
-        const float relativePitchRad = radians(cockpitRelativeRot.Pitch + relativePitchOffset);
+        // Kind of hacky below but this makes sure we line up with the torso aim even when the torso target is off center to the cockpit
+        // torsoAimRotation is the difference between the cockpit/camera angle and the torso crosshair/aim angle
+        if (*HeadAimLocked) {
+            yawOffset   = torsoAimRotation.Yaw;
+            pitchOffset = -torsoAimRotation.Pitch;
+        } else {
+            // Apply torsoDelta to catch the current frame's torso rotation and add the difference between the cockpit and torso aim accounting for zoom level
+            yawOffset   = -torsoDelta.x * invZoom + torsoAimRotation.Yaw * oneMinusInv;
+            pitchOffset = torsoDelta.y * invZoom - torsoAimRotation.Pitch * oneMinusInv;
+        }
+
+        // CockpitRelativeRot is the rotation of the cockpit relative to the mech
+        // Add this to the offsets and create a new quaternion
+        const float relativeYawRad   = radians(-cockpitRelativeRot.Yaw + yawOffset);
+        const float relativePitchRad = radians(cockpitRelativeRot.Pitch + pitchOffset);
         const float relativeRollRad  = radians(-cockpitRelativeRot.Roll);
-
         const quat qRelative = MakeYawPitchRollQuat(relativeYawRad, relativePitchRad, relativeRollRad);
-        const vec3 aimDir    = normalize(qRelative * headDirTorso);
 
-        const float yawRad   = atan2(aimDir.y, aimDir.x);
-        const float pitchRad = atan2(aimDir.z, sqrt(aimDir.x * aimDir.x + aimDir.y * aimDir.y));
+        // Rotate the arm twist direction by the relative quaternion
+        const vec3 worldArmTwistDir = qRelative * localArmTwistDir;
 
-        float yawDeg   = -degrees(yawRad);
-        float pitchDeg = -degrees(pitchRad);
+        // Construct the yaw and pitch angles from the worldArmTwistDir
+        const float yawRad   = atan2(worldArmTwistDir.y, worldArmTwistDir.x);
+        const float xyLen    = sqrt(worldArmTwistDir.x * worldArmTwistDir.x + worldArmTwistDir.y * worldArmTwistDir.y);
+        const float pitchRad = atan2(worldArmTwistDir.z, xyLen);
+        *ArmTwist = vec2(
+            -degrees(yawRad),
+            -degrees(pitchRad)
+        );
 
-        *ArmTwist = vec2(yawDeg, pitchDeg);
-
+        // Update the previous torso rotation, used for applying the current frames' rotation to the calcs before the skeleton has been updated
         PreviousTorsoRotation = *TorsoRotation;
     }
 };
