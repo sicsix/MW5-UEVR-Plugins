@@ -14,8 +14,8 @@ public:
         Instance                  = this;
         PluginExtension::Instance = this;
         Name                      = "Cameras";
-        Version                   = "2.0.4";
-        VersionInt                = 204;
+        Version                   = "2.1.0";
+        VersionInt                = 210;
         VersionCheckFnName        = L"OnFetchCamerasPluginData";
         VersionPropertyName       = L"CamerasVersion";
     }
@@ -31,19 +31,15 @@ public:
         KeyboardMouse = 0, Gamepad = 1, Joystick = 2,
     };
 
-    inline static auto                CachedCameraOffset   = float3(-1.0f, -1.0f, -1.0f);
-    inline static auto                CachedCameraPosition = float3(-1.0f, -1.0f, -1.0f);
-    inline static std::optional<bool> CachedCursorEnabled  = std::nullopt;
-    inline static bool                ShowCursor           = true;
-    inline static bool                VREnabled            = false;
-    inline static std::optional<bool> CachedDecoupledPitch = std::nullopt;
-    inline static bool                CachedIsStarmap      = false;
-    inline static auto                ActiveInputType      = EKeyInputType::KeyboardMouse;
-
-    struct SetMouseEnabledData {
-        bool Enabled;
-        bool VREnabled;
-    };
+    inline static auto                CachedCameraOffset    = float3(-1.0f, -1.0f, -1.0f);
+    inline static auto                CachedCameraPosition  = float3(-1.0f, -1.0f, -1.0f);
+    inline static std::optional<bool> CachedCursorEnabled   = std::nullopt;
+    inline static bool                ShowCursor            = true;
+    inline static bool                VREnabled             = false;
+    inline static std::optional<bool> CachedDecoupledPitch  = std::nullopt;
+    inline static bool                CachedIsStarmap       = false;
+    inline static auto                ActiveInputType       = EKeyInputType::KeyboardMouse;
+    inline static bool                EnableVRControllerFix = true;
 
     using FnA = EKeyInputType(__fastcall *)(void* self, EKeyInputType inputType);
     static inline FunctionHook<FnA> SetCurrentInputTypeHook{"SetCurrentInputType"};
@@ -85,6 +81,23 @@ public:
         }
 
         if (!AddEventHook(vrGlobal, L"SendCameraPosition", &OnSendCameraPosition)) {
+            RemoveAllEventHooks(true);
+            return;
+        }
+
+        if (!AddEventHook(vrGlobal, L"SetEnableVRControllerFix", &OnSetEnableVRControllerFix)) {
+            RemoveAllEventHooks(true);
+            return;
+        }
+
+        const auto vrMechCockpit = API::get()->find_uobject<API::UClass>(L"BlueprintGeneratedClass /Game/MechWarriorVR/VR_Mech_Cockpit.VR_Mech_Cockpit_C");
+        if (!vrGlobal) {
+            LogError("Failed to find VR Mech Cockpit class");
+            RemoveAllEventHooks(true);
+            return;
+        }
+
+        if (!AddEventHook(vrMechCockpit, L"SetDirectionalLightParams", &OnSetDirectionalLightParams)) {
             RemoveAllEventHooks(true);
             return;
         }
@@ -180,7 +193,7 @@ public:
     }
 
     static EKeyInputType MWInputListener_SetCurrentInputType(void* self, EKeyInputType inputType) {
-        if (!VREnabled)
+        if (!VREnabled || !EnableVRControllerFix)
             return SetCurrentInputTypeHook.OriginalFn(self, inputType);
 
         static POINT previousMousePosition = {};
@@ -208,6 +221,11 @@ public:
 
         return SetCurrentInputTypeHook.OriginalFn(self, ActiveInputType);
     }
+
+    struct SetMouseEnabledData {
+        bool Enabled;
+        bool VREnabled;
+    };
 
     static void* OnSetMouseEnabled(API::UObject*, FFrame* frame, void* const) {
         if (!Instance)
@@ -284,6 +302,55 @@ public:
 
         CachedCameraPosition = *cameraPosition;
         CachedCameraOffset   = offset;
+
+        return nullptr;
+    }
+
+    static void* OnSetEnableVRControllerFix(API::UObject*, FFrame* frame, void* const) {
+        if (!Instance)
+            return nullptr;
+
+        const bool* enableVrControllerFix = frame->GetParams<bool>();
+        if (!enableVrControllerFix)
+            return nullptr;
+
+        EnableVRControllerFix = *enableVrControllerFix;
+
+        Instance->LogInfo("EnableVRControllerFix set to: %s", EnableVRControllerFix ? "true" : "false");
+        return nullptr;
+    }
+
+    struct SetDirectionalLightParams {
+        API::UObject* DirectionalLight;
+        int32_t       FarShadowCascadeCount;
+        float         CockpitWorldScale;
+    };
+
+    static void* OnSetDirectionalLightParams(API::UObject*, FFrame* frame, void* const) {
+        if (!Instance)
+            return nullptr;
+
+        const auto* params = frame->GetParams<SetDirectionalLightParams>();
+        if (!params)
+            return nullptr;
+
+        int32_t* farCascadeCount = nullptr;
+        if (Instance->TryGetPropertyStruct(params->DirectionalLight, L"FarShadowCascadeCount", farCascadeCount)) {
+            *farCascadeCount = params->FarShadowCascadeCount;
+            Instance->LogInfo("FarShadowCascadeCount set to: %d", params->FarShadowCascadeCount);
+        }
+
+        float* shadowSharpen = nullptr;
+        if (Instance->TryGetPropertyStruct(params->DirectionalLight, L"ShadowSharpen", shadowSharpen)) {
+            *shadowSharpen = 0.1f;
+            Instance->LogInfo("ShadowSharpen set to: 0.1f");
+        }
+
+        float* dynamicShadowDistanceMovableLight = nullptr;
+        if (Instance->TryGetPropertyStruct(params->DirectionalLight, L"DynamicShadowDistanceMovableLight", dynamicShadowDistanceMovableLight)) {
+            *dynamicShadowDistanceMovableLight = params->CockpitWorldScale * 3.7f;
+            Instance->LogInfo("Cockpit shadow distance set to: %f", *dynamicShadowDistanceMovableLight);
+        }
 
         return nullptr;
     }

@@ -35,14 +35,16 @@ public:
         Instance                  = this;
         PluginExtension::Instance = this;
         Name                      = "MechShakerBridge";
-        Version                   = "2.0.5";
-        VersionInt                = 205;
+        Version                   = "2.0.6";
+        VersionInt                = 206;
         VersionCheckFnName        = L"OnFetchMechShakerBridgePluginData";
         VersionPropertyName       = L"MechShakerBridgeVersion";
     }
 
     virtual ~MechShakerBridge() override {
+        Instance = nullptr;
         if (Running) {
+            Running = false;
             RemoveAllEventHooks(false);
 
             if (Buffer) {
@@ -57,8 +59,6 @@ public:
                 MapFile = nullptr;
             }
         }
-
-        Instance = nullptr;
     }
 
     virtual void OnInitialize() override {
