@@ -14,8 +14,8 @@ public:
         Instance                  = this;
         PluginExtension::Instance = this;
         Name                      = "Cameras";
-        Version                   = "2.1.0";
-        VersionInt                = 210;
+        Version                   = "2.2.0";
+        VersionInt                = 220;
         VersionCheckFnName        = L"OnFetchCamerasPluginData";
         VersionPropertyName       = L"CamerasVersion";
     }
@@ -91,13 +91,18 @@ public:
         }
 
         const auto vrMechCockpit = API::get()->find_uobject<API::UClass>(L"BlueprintGeneratedClass /Game/MechWarriorVR/VR_Mech_Cockpit.VR_Mech_Cockpit_C");
-        if (!vrGlobal) {
+        if (!vrMechCockpit) {
             LogError("Failed to find VR Mech Cockpit class");
             RemoveAllEventHooks(true);
             return;
         }
 
         if (!AddEventHook(vrMechCockpit, L"SetDirectionalLightParams", &OnSetDirectionalLightParams)) {
+            RemoveAllEventHooks(true);
+            return;
+        }
+
+        if (!AddEventHook(vrMechCockpit, L"UpdateAudioListener", &OnUpdateAudioListener)) {
             RemoveAllEventHooks(true);
             return;
         }
@@ -351,6 +356,44 @@ public:
             *dynamicShadowDistanceMovableLight = params->CockpitWorldScale * 3.7f;
             Instance->LogInfo("Cockpit shadow distance set to: %f", *dynamicShadowDistanceMovableLight);
         }
+
+        return nullptr;
+    }
+
+    struct UpdateAudioListenerParams {
+        API::UObject* VRCamera;
+    };
+
+    static void* OnUpdateAudioListener(API::UObject*, FFrame* frame, void* const) {
+        if (!Instance)
+            return nullptr;
+
+        const auto pc = API::get()->get_player_controller(0);
+        if (!pc)
+            return nullptr;
+
+        const auto* params = frame->GetParams<UpdateAudioListenerParams>();
+        if (!params)
+            return nullptr;
+
+        quat q;
+        vec3 pose;
+        GetHMDPoseAndRotation(q, pose);
+
+        const vec3 angles   = EulerAnglesFromQuat(q);
+        const vec3 rotation = vec3(degrees(angles.x), degrees(angles.y), degrees(angles.z));
+
+        struct {
+            API::UObject* AttachToComponent;
+            vec3          Location;
+            vec3          Rotation;
+        } overrideParams;
+
+        overrideParams.AttachToComponent = params->VRCamera;
+        overrideParams.Location          = pose;
+        overrideParams.Rotation          = rotation;
+
+        pc->call_function(L"SetAudioListenerOverride", &overrideParams);
 
         return nullptr;
     }

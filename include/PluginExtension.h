@@ -11,6 +11,7 @@
 
 #define MH_STATIC
 #include <MinHook.h>
+#include <glm/gtx/euler_angles.hpp>
 
 using namespace uevr;
 using namespace glm;
@@ -229,6 +230,60 @@ protected:
         outProperty = data;
         LogInfo("Found property %s", propertyNameNarrow.c_str());
         return true;
+    }
+
+    static void GetHMDPoseAndRotation(quat& outRot, vec3& outPose) {
+        UEVR_Vector3f    pose;
+        UEVR_Quaternionf rot, offset;
+        const auto       hmdIndex = API::get()->param()->vr->get_hmd_index();
+
+        API::get()->param()->vr->get_pose(hmdIndex, &pose, &rot);
+        API::get()->param()->vr->get_rotation_offset(&offset);
+
+        const quat qHmd(rot.w, rot.z, rot.x, rot.y);
+        const quat qRotOffset(offset.w, offset.z, offset.x, offset.y);
+        const quat combined = normalize(qRotOffset * qHmd);
+
+        outRot  = normalize(combined);
+        outPose = vec3(pose.x, pose.y, pose.z);
+    }
+
+    static vec3 EulerAnglesFromQuat(const quat& q) {
+        const auto rot   = mat4{q};
+        float      pitch = 0.0f;
+        float      yaw   = 0.0f;
+        float      roll  = 0.0f;
+        extractEulerAngleYXZ(rot, yaw, pitch, roll);
+        return {pitch, -yaw, -roll};
+    }
+
+    static float QuatAngleRad(const quat& a, const quat& b) {
+        const float d = clamp(abs(dot(normalize(a), normalize(b))), 0.0f, 1.0f);
+        return 2.0f * acos(d);
+    }
+
+    static quat MakeYawPitchRollQuat(const float yawRad, const float pitchRad, const float rollRad) {
+        const quat qYaw   = angleAxis(yawRad, vec3(0, 0, 1));
+        const quat qPitch = angleAxis(pitchRad, vec3(0, 1, 0));
+        const quat qRoll  = angleAxis(rollRad, vec3(1, 0, 0));
+        return normalize(qYaw * qPitch * qRoll);
+    }
+
+    static float WrapDeg180(float a) {
+        a = fmodf(a + 180.0f, 360.0f);
+        if (a < 0.0f) a += 360.0f;
+        return a - 180.0f;
+    }
+
+    static float DeltaAngleDeg(float current, float target) {
+        return WrapDeg180(target - current);
+    }
+
+    static vec2 DeltaAngleDeg2(const vec2& current, const vec2& target) {
+        return vec2(
+            DeltaAngleDeg(current.x, target.x),
+            DeltaAngleDeg(current.y, target.y)
+        );
     }
 
 public:

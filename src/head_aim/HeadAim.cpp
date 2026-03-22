@@ -65,8 +65,8 @@ public:
         Instance                  = this;
         PluginExtension::Instance = this;
         Name                      = "HeadAim";
-        Version                   = "2.2.1";
-        VersionInt                = 221;
+        Version                   = "2.3.0";
+        VersionInt                = 230;
         VersionCheckFnName        = L"OnFetchHeadAimPluginData";
         VersionPropertyName       = L"HeadAimVersion";
     }
@@ -203,43 +203,6 @@ private:
         return true;
     }
 
-    static vec3 EulerAnglesFromQuat(const quat& q) {
-        const auto rot   = mat4{q};
-        float      pitch = 0.0f;
-        float      yaw   = 0.0f;
-        float      roll  = 0.0f;
-        extractEulerAngleYXZ(rot, yaw, pitch, roll);
-        return {pitch, -yaw, -roll};
-    }
-
-    quat GetHMDRotation() const {
-        UEVR_Vector3f    pose;
-        UEVR_Quaternionf rot, offset;
-        const auto       hmdIndex = API::get()->param()->vr->get_hmd_index();
-
-        API::get()->param()->vr->get_pose(hmdIndex, &pose, &rot);
-        API::get()->param()->vr->get_rotation_offset(&offset);
-
-        const quat qHmd(rot.w, rot.z, rot.x, rot.y);
-        const quat qRotOffset(offset.w, offset.z, offset.x, offset.y);
-        const quat combined       = normalize(qRotOffset * qHmd);
-        const quat qHeadAimOffset = angleAxis(radians(*HeadAimPitchOffset), vec3(0, 1, 0));
-
-        return normalize(combined * qHeadAimOffset);
-    }
-
-    static float QuatAngleRad(const quat& a, const quat& b) {
-        const float d = clamp(abs(dot(normalize(a), normalize(b))), 0.0f, 1.0f);
-        return 2.0f * acos(d);
-    }
-
-    static quat MakeYawPitchRollQuat(const float yawRad, const float pitchRad, const float rollRad) {
-        const quat qYaw   = angleAxis(yawRad, vec3(0, 0, 1));
-        const quat qPitch = angleAxis(pitchRad, vec3(0, 1, 0));
-        const quat qRoll  = angleAxis(rollRad, vec3(1, 0, 0));
-        return normalize(qYaw * qPitch * qRoll);
-    }
-
     void ProcessHeadAim() {
         constexpr auto  fwd         = vec3(1, 0, 0);
         constexpr float deadbandRad = radians(0.15f); // 0.10–0.25
@@ -247,7 +210,11 @@ private:
         constexpr float lambdaSlow  = 20.0f;          // 14–20
         constexpr float lambdaFast  = 50.0f;          // 35–50
 
-        const quat q = GetHMDRotation();
+        quat q;
+        vec3 pose;
+        GetHMDPoseAndRotation(q, pose);
+        const quat qHeadAimOffset = angleAxis(radians(*HeadAimPitchOffset), vec3(0, 1, 0));
+        q                         = normalize(q * qHeadAimOffset);
 
         if (!SmoothedQuatInit) {
             SmoothedHmdQuat  = q;
@@ -281,23 +248,6 @@ private:
         *HeadTarget = vec2(yawDeg, pitchDeg);
     }
 
-    static float WrapDeg180(float a) {
-        a = fmodf(a + 180.0f, 360.0f);
-        if (a < 0.0f) a += 360.0f;
-        return a - 180.0f;
-    }
-
-    static float DeltaAngleDeg(float current, float target) {
-        return WrapDeg180(target - current);
-    }
-
-    static vec2 DeltaAngleDeg2(const vec2& current, const vec2& target) {
-        return vec2(
-            DeltaAngleDeg(current.x, target.x),
-            DeltaAngleDeg(current.y, target.y)
-        );
-    }
-
     void ProcessArmTwist(RotationDegrees cockpitRelativeRot, RotationDegrees torsoAimRotation) {
         const float zoom        = max(0.001f, *ZoomLevel);
         const float invZoom     = 1.0f / zoom;
@@ -315,11 +265,11 @@ private:
         }
 
         // Calculate velocity and new rotation
-        const vec2 diff = DeltaAngleDeg2(CurrentArmRotation, targetArmRotation);
-        vec2 accel = ARM_SPRING_CONSTANT * diff - ARM_DAMPING_CONSTANT * CurrentArmVelocity;
-        CurrentArmVelocity += accel * Delta;
+        const vec2 diff      = DeltaAngleDeg2(CurrentArmRotation, targetArmRotation);
+        vec2       accel     = ARM_SPRING_CONSTANT * diff - ARM_DAMPING_CONSTANT * CurrentArmVelocity;
+        CurrentArmVelocity   += accel * Delta;
         const float maxSpeed = TorsoStats->Arm.TwistRate.x; // Just assuming x==y
-        float v2 = dot(CurrentArmVelocity, CurrentArmVelocity);
+        float       v2       = dot(CurrentArmVelocity, CurrentArmVelocity);
         if (v2 > maxSpeed * maxSpeed) {
             CurrentArmVelocity *= maxSpeed / sqrt(v2);
         }
@@ -327,7 +277,7 @@ private:
 
         // Calculate aim direction
         constexpr vec3 fwd(1.0f, 0.0f, 0.0f);
-        const quat qArm = MakeYawPitchRollQuat(
+        const quat     qArm = MakeYawPitchRollQuat(
             -radians(CurrentArmRotation.x),
             radians(CurrentArmRotation.y),
             0.0f
@@ -355,7 +305,7 @@ private:
         const float relativeYawRad   = radians(-cockpitRelativeRot.Yaw + yawOffset);
         const float relativePitchRad = radians(cockpitRelativeRot.Pitch + pitchOffset);
         const float relativeRollRad  = radians(-cockpitRelativeRot.Roll);
-        const quat qRelative = MakeYawPitchRollQuat(relativeYawRad, relativePitchRad, relativeRollRad);
+        const quat  qRelative        = MakeYawPitchRollQuat(relativeYawRad, relativePitchRad, relativeRollRad);
 
         // Rotate the arm twist direction by the relative quaternion
         const vec3 worldArmTwistDir = qRelative * localArmTwistDir;
@@ -364,7 +314,7 @@ private:
         const float yawRad   = atan2(worldArmTwistDir.y, worldArmTwistDir.x);
         const float xyLen    = sqrt(worldArmTwistDir.x * worldArmTwistDir.x + worldArmTwistDir.y * worldArmTwistDir.y);
         const float pitchRad = atan2(worldArmTwistDir.z, xyLen);
-        *ArmTwist = vec2(
+        *ArmTwist            = vec2(
             -degrees(yawRad),
             -degrees(pitchRad)
         );
