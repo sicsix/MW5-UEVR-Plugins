@@ -191,7 +191,7 @@ protected:
     }
 
     template <typename T>
-    bool TryGetProperty(const API::UObject* object, const wchar_t* propertyName, T& outProperty) {
+    bool TryGetProperty(const API::UObject* object, const wchar_t* propertyName, T& outProperty, const bool log = true) {
         std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
         const std::string                                propertyNameNarrowStr = converter.to_bytes(propertyName);
         const auto                                       propertyNameNarrow    = propertyNameNarrowStr.c_str();
@@ -208,12 +208,14 @@ protected:
         }
 
         outProperty = *data;
-        LogInfo("Found property %s", propertyNameNarrow);
+        if (log) {
+            LogInfo("Found property %s", propertyNameNarrow);
+        }
         return true;
     }
 
     template <typename T>
-    bool TryGetPropertyStruct(const API::UObject* object, const wchar_t* propertyName, T*& outProperty) {
+    bool TryGetPropertyStruct(const API::UObject* object, const wchar_t* propertyName, T*& outProperty, const bool log = true) {
         const auto propertyNameNarrow = WideToNarrow(propertyName);
 
         if (!object) {
@@ -228,7 +230,9 @@ protected:
         }
 
         outProperty = data;
-        LogInfo("Found property %s", propertyNameNarrow.c_str());
+        if (log) {
+            LogInfo("Found property %s", propertyNameNarrow.c_str());
+        }
         return true;
     }
 

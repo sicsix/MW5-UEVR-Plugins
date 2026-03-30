@@ -14,8 +14,8 @@ public:
         Instance                  = this;
         PluginExtension::Instance = this;
         Name                      = "Cameras";
-        Version                   = "2.2.0";
-        VersionInt                = 220;
+        Version                   = "2.3.0";
+        VersionInt                = 230;
         VersionCheckFnName        = L"OnFetchCamerasPluginData";
         VersionPropertyName       = L"CamerasVersion";
     }
@@ -25,21 +25,23 @@ public:
         SetCurrentInputTypeHook.Uninstall();
         AddGTAOSpatialFilterHook.Uninstall();
         FSSAOShaderParameters_OperatorEqualsHook.Uninstall();
+        FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadowsHook.Uninstall();
     }
 
     enum class EKeyInputType : uint8_t {
         KeyboardMouse = 0, Gamepad = 1, Joystick = 2,
     };
 
-    inline static auto                CachedCameraOffset    = float3(-1.0f, -1.0f, -1.0f);
-    inline static auto                CachedCameraPosition  = float3(-1.0f, -1.0f, -1.0f);
-    inline static std::optional<bool> CachedCursorEnabled   = std::nullopt;
-    inline static bool                ShowCursor            = true;
-    inline static bool                VREnabled             = false;
-    inline static std::optional<bool> CachedDecoupledPitch  = std::nullopt;
-    inline static bool                CachedIsStarmap       = false;
-    inline static auto                ActiveInputType       = EKeyInputType::KeyboardMouse;
-    inline static bool                EnableVRControllerFix = true;
+    inline static auto                CachedCameraOffset           = float3(-1.0f, -1.0f, -1.0f);
+    inline static auto                CachedCameraPosition         = float3(-1.0f, -1.0f, -1.0f);
+    inline static std::optional<bool> CachedCursorEnabled          = std::nullopt;
+    inline static bool                ShowCursor                   = true;
+    inline static bool                VREnabled                    = false;
+    inline static std::optional<bool> CachedDecoupledPitch         = std::nullopt;
+    inline static bool                CachedIsStarmap              = false;
+    inline static auto                ActiveInputType              = EKeyInputType::KeyboardMouse;
+    inline static bool                EnableVRControllerFix        = true;
+    inline static bool                EnableDynamicShadowsInCamera = false;
 
     using FnA = EKeyInputType(__fastcall *)(void* self, EKeyInputType inputType);
     static inline FunctionHook<FnA> SetCurrentInputTypeHook{"SetCurrentInputType"};
@@ -54,6 +56,9 @@ public:
 
     using FnC = void(__fastcall *)(FSSAOShaderParameters* self, const FSSAOShaderParameters& other);
     static inline FunctionHook<FnC> FSSAOShaderParameters_OperatorEqualsHook{"FSSAOShaderParameters::operator="};
+
+    using FnD = int64_t(__fastcall *)(void* self, const FSceneView* view, bool bIsPrecomputedLightingValid);
+    static inline FunctionHook<FnD> FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadowsHook{"FDirectionalLightSceneProxy::GetNumViewDependentWholeSceneShadows"};
 
     virtual void OnInitialize() override {
         const auto vrGlobal = API::get()->find_uobject<API::UClass>(L"BlueprintGeneratedClass /Game/MechWarriorVR/VR_Global.VR_Global_C");
@@ -90,6 +95,11 @@ public:
             return;
         }
 
+        if (!AddEventHook(vrGlobal, L"SetEnableDynamicShadowsInCamera", &OnSetEnableDynamicShadowsInCamera)) {
+            RemoveAllEventHooks(true);
+            return;
+        }
+
         const auto vrMechCockpit = API::get()->find_uobject<API::UClass>(L"BlueprintGeneratedClass /Game/MechWarriorVR/VR_Mech_Cockpit.VR_Mech_Cockpit_C");
         if (!vrMechCockpit) {
             LogError("Failed to find VR Mech Cockpit class");
@@ -107,10 +117,24 @@ public:
             return;
         }
 
+        const auto abstractMech = API::get()->find_uobject<API::UClass>(L"BlueprintGeneratedClass /Game/Objects/Mechs/AbstractMech.AbstractMech_C");
+        if (!abstractMech) {
+            LogError("Failed to find AbstractMech class");
+            RemoveAllEventHooks(true);
+            return;
+        }
+
+        if (!AddEventHook(abstractMech, L"DisableAffectDistanceFieldLighting", &OnDisableAffectDistanceFieldLighting)) {
+            RemoveAllEventHooks(true);
+            return;
+        }
+
         Offsets::FindAll();
         SetCurrentInputTypeHook.DetourOffset(Offsets::MWInputListener_SetCurrentInputType_Offset, &MWInputListener_SetCurrentInputType);
         AddGTAOSpatialFilterHook.DetourOffset(Offsets::AddGTAOSpatialFilter_Offset, &AddGTAOSpatialFilter);
         FSSAOShaderParameters_OperatorEqualsHook.DetourOffset(Offsets::FSSAOShaderParameters_OperatorEquals_Offset, &FSSAOShaderParameters_OperatorEquals);
+        FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadowsHook.DetourOffset(Offsets::FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadows_Offset,
+                                                                                          &FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadows);
     }
 
     virtual void on_pre_engine_tick(API::UGameEngine* engine, float delta) override {
@@ -158,6 +182,13 @@ public:
                                                    FScreenPassRenderTarget suggestedOutput) {
         // Fixes an Unreal GTAO bug where the input and inputDepth parameters were swapped and caused the entire screen to darken
         return AddGTAOSpatialFilterHook.OriginalFn(graphBuilder, view, commonParameters, inputDepth, input, suggestedOutput);
+    }
+
+    static int64_t FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadows(void* self, const FSceneView* view, bool bIsPrecomputedLightingValid) {
+        if (view->bIsSceneCapture && !EnableDynamicShadowsInCamera) {
+            return 0;
+        }
+        return FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadowsHook.OriginalFn(self, view, bIsPrecomputedLightingValid);
     }
 
     static void* OnSetCameraOffset(API::UObject*, FFrame* frame, void* const) {
@@ -325,6 +356,20 @@ public:
         return nullptr;
     }
 
+    static void* OnSetEnableDynamicShadowsInCamera(API::UObject*, FFrame* frame, void* const) {
+        if (!Instance)
+            return nullptr;
+
+        const bool* enableDynamicShadowsInCamera = frame->GetParams<bool>();
+        if (!enableDynamicShadowsInCamera)
+            return nullptr;
+
+        EnableDynamicShadowsInCamera = *enableDynamicShadowsInCamera;
+
+        Instance->LogInfo("EnableDynamicShadowsInCamera set to: %s", EnableDynamicShadowsInCamera ? "true" : "false");
+        return nullptr;
+    }
+
     struct SetDirectionalLightParams {
         API::UObject* DirectionalLight;
         int32_t       FarShadowCascadeCount;
@@ -394,6 +439,24 @@ public:
         overrideParams.Rotation          = rotation;
 
         pc->call_function(L"SetAudioListenerOverride", &overrideParams);
+
+        return nullptr;
+    }
+
+    static void* OnDisableAffectDistanceFieldLighting(API::UObject*, FFrame* frame, void* const) {
+        if (!Instance)
+            return nullptr;
+
+        const auto staticMesh = frame->GetParams<API::UObject*>();
+        if (!staticMesh)
+            return nullptr;
+
+        bool* bAffectDistanceFieldLighting = nullptr;
+        if (Instance->TryGetPropertyStruct(*staticMesh, L"bAffectDistanceFieldLighting", bAffectDistanceFieldLighting, false)) {
+            if (bAffectDistanceFieldLighting) {
+                *bAffectDistanceFieldLighting = false;
+            }
+        }
 
         return nullptr;
     }

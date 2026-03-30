@@ -7,6 +7,7 @@ namespace Offsets {
     inline uintptr_t AddGTAOSpatialFilter_Offset                                                            = 0;
     inline uintptr_t FSSAOShaderParameters_OperatorEquals_Offset                                            = 0;
     inline uintptr_t AddGTAOHorizonSearchIntegratePass_FSSAOShaderParameters_OperatorEquals_Callsite_Offset = 0;
+    inline uintptr_t FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadows_Offset                = 0;
 
     // TODO Fix up MW5.h to not read references to offsets here...
     inline uintptr_t FRHICommandList_GetNativeDevice_Offset = 0; // 0x0D8D7E0;
@@ -19,6 +20,8 @@ namespace Offsets {
             "0F 10 02 0F 11 01 0F 10 4A 10 0F 11 49 10 0F 10 42 20 0F 11 41 20 0F 10 4A 30 0F 11 49 30 0F 10 42 40 0F 11 41 40 F2 0F 10 4A 50 F2 0F 11 49 50 F2 0F 10 42 58 F2 0F 11 41 58";
     static auto AddGTAOHorizonSearchIntegratePass_FSSAOShaderParameters_OperatorEquals_Callsite_Bytes =
             "4C 8B 45 B0 48 8D 4D 00 48 8B D3";
+    static auto FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadows_Bytes =
+            "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 20 80 3D ?? ?? ?? ?? 00 41 0F B6 E8 4C 8B 3D";
 
     static bool FindAll() {
         const auto text = GetExeTextRange();
@@ -37,6 +40,10 @@ namespace Offsets {
         if (!Find(text.value(), "AddGTAOHorizonSearchIntegratePass FSSAOShaderParameters::operator= callsite",
                   AddGTAOHorizonSearchIntegratePass_FSSAOShaderParameters_OperatorEquals_Callsite_Bytes,
                   AddGTAOHorizonSearchIntegratePass_FSSAOShaderParameters_OperatorEquals_Callsite_Offset))
+            return false;
+
+        if (!Find(text.value(), "FDirectionalLightSceneProxy::GetNumViewDependentWholeSceneShadows", FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadows_Bytes,
+                  FDirectionalLightSceneProxy_GetNumViewDependentWholeSceneShadows_Offset))
             return false;
 
         return true;
